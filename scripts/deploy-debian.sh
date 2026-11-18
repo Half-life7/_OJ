@@ -10,7 +10,7 @@ fail() {
 offline=false
 case "${1:-}" in
   -h|--help)
-    printf '用法：bash deploy-debian.sh\n支持 Debian 12/13。直接运行并按提示选择部署方式。\n--offline 可用于自动化，使用预装 Docker 和已导入的成品镜像。\n'
+    printf '用法：bash deploy-debian.sh\n支持 Debian 12/13 和 Ubuntu 22.04。直接运行并按提示选择部署方式。\n--offline 可用于自动化，使用预装 Docker 和已导入的成品镜像。\n'
     exit 0
     ;;
   --offline) offline=true ;;
@@ -26,11 +26,13 @@ fi
 
 [[ -r /etc/os-release ]] || fail '无法识别系统版本。'
 source /etc/os-release
-case "${ID:-}:${VERSION_CODENAME:-}" in
-  debian:bookworm|debian:trixie) ;;
-  *) fail '需要 Debian 12（bookworm）或 Debian 13（trixie）。' ;;
+distribution=${ID:-}
+codename=${VERSION_CODENAME:-${UBUNTU_CODENAME:-}}
+case "$distribution:$codename" in
+  debian:bookworm|debian:trixie|ubuntu:jammy) ;;
+  *) fail '需要 Debian 12（bookworm）、Debian 13（trixie）或 Ubuntu 22.04（jammy）。' ;;
 esac
-[[ -d /run/systemd/system ]] || fail '需要由 systemd 启动的 Debian 主机。'
+[[ -d /run/systemd/system ]] || fail '需要由 systemd 启动的 Linux 主机。'
 cgroup_controllers=/sys/fs/cgroup/cgroup.controllers
 [[ -r $cgroup_controllers ]] || fail '需要启用 cgroup v2。'
 controllers=$(<"$cgroup_controllers")
@@ -62,7 +64,7 @@ if [[ $# -eq 0 && -t 0 ]]; then
     esac
   done
   if [[ $mode == 1 || $mode == 3 ]]; then
-    export DOCKER_APT_URL="${DOCKER_APT_URL:-https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian}"
+    export DOCKER_APT_URL="${DOCKER_APT_URL:-https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/$distribution}"
     export DEBIAN_MIRROR_BASE="${DEBIAN_MIRROR_BASE:-http://mirrors.tuna.tsinghua.edu.cn}"
     export GOPROXY="${GOPROXY:-https://goproxy.cn}"
   fi
@@ -155,8 +157,8 @@ elif ! command -v docker >/dev/null; then
   # Reuse existing sources. Only an explicit override replaces an OJ-managed source.
   if [[ -f $docker_source && -n ${DOCKER_APT_URL:-} ]] ||
      { [[ ! -f $docker_source ]] &&
-       ! grep -rqsE '/linux/debian/?([[:space:]]|$)' /etc/apt/sources.list /etc/apt/sources.list.d; }; then
-    docker_apt_url=${DOCKER_APT_URL:-https://download.docker.com/linux/debian}
+       ! grep -rqsE "/linux/$distribution/?([[:space:]]|$)" /etc/apt/sources.list /etc/apt/sources.list.d; }; then
+    docker_apt_url=${DOCKER_APT_URL:-https://download.docker.com/linux/$distribution}
     docker_apt_url=${docker_apt_url%/}
     [[ $docker_apt_url =~ ^https://[[:alnum:].:/_-]+$ ]] || fail 'DOCKER_APT_URL 需要是 HTTPS 仓库地址。'
     if [[ ! -s /etc/ssl/certs/ca-certificates.crt ]] ||
@@ -178,7 +180,7 @@ elif ! command -v docker >/dev/null; then
     cat >"$docker_source" <<EOF
 Types: deb
 URIs: $docker_apt_url
-Suites: $VERSION_CODENAME
+Suites: $codename
 Components: stable
 Architectures: $(dpkg --print-architecture)
 Signed-By: /etc/apt/keyrings/oj-docker.asc
@@ -194,8 +196,12 @@ else
   command -v openssl >/dev/null || packages+=(openssl)
   if ! "${docker_cmd[@]}" compose version >/dev/null 2>&1 ||
      ! "${docker_cmd[@]}" buildx version >/dev/null 2>&1; then
-    if [[ $VERSION_CODENAME == trixie ]] && dpkg-query -W -f='${db:Status-Status}' docker.io 2>/dev/null | grep -qx installed; then
-      packages+=(docker-compose docker-buildx)
+    if [[ $distribution == ubuntu || $codename == trixie ]] &&
+       dpkg-query -W -f='${db:Status-Status}' docker.io 2>/dev/null | grep -qx installed; then
+      case "$distribution" in
+        ubuntu) packages+=(docker-compose-v2 docker-buildx) ;;
+        debian) packages+=(docker-compose docker-buildx) ;;
+      esac
     else
       packages+=(docker-compose-plugin docker-buildx-plugin)
     fi

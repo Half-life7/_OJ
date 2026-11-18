@@ -34,9 +34,9 @@ deploy/                 systemd、Docker Compose、Linux 调优说明
 
 ## 快速启动
 
-### Debian 12 / 13 一键部署
+### Debian 12 / 13 和 Ubuntu 22.04 一键部署
 
-把 [deploy-debian.sh](https://raw.githubusercontent.com/Half-life7/_OJ/main/scripts/deploy-debian.sh) 下载或传给部署人员。在启用 systemd 和 cgroup v2 的 Debian 主机上，进入脚本所在目录执行：
+把 [deploy-debian.sh](https://raw.githubusercontent.com/Half-life7/_OJ/main/scripts/deploy-debian.sh) 下载或传给部署人员。脚本会识别启用 systemd 和 cgroup v2 的 Debian 12/13 或 Ubuntu 22.04（Jammy）。进入脚本所在目录执行：
 
 ```bash
 bash deploy-debian.sh
@@ -66,7 +66,7 @@ sudo docker compose --env-file deploy/.env -f deploy/docker-compose.yml stop
 
 Docker 安装包、Docker 基础镜像和构建依赖使用不同的下载源。服务器能访问 Docker Hub 或已配置可用的镜像加速时，在部署菜单选择 **1 国内软件源** 即可。清华镜像提供 Docker CE 和 Debian 软件包，Go 模块由 Goproxy.cn 下载，校验保持开启。[Docker CE 镜像](https://mirrors.tuna.tsinghua.edu.cn/help/docker-ce/) · [Debian 镜像](https://mirrors.tuna.tsinghua.edu.cn/help/debian/) · [Goproxy.cn](https://goproxy.cn/)
 
-`DOCKER_APT_URL` 用于脚本配置的 Docker CE 软件源。宿主机的 Debian 软件源和系统管理员已有的 Docker 源由宿主机管理。`DEBIAN_MIRROR_BASE` 只在构建镜像时替换容器内的 Debian 和 Debian Security 源，APT 仍校验软件包的签名索引。
+脚本按宿主机发行版选择 Docker CE 的 Debian 或 Ubuntu 仓库，`DOCKER_APT_URL` 可覆盖脚本使用的地址。宿主机的系统软件源和管理员已有的 Docker 源由宿主机管理。`DEBIAN_MIRROR_BASE` 只在构建镜像时替换容器内的 Debian 和 Debian Security 源，APT 仍校验软件包的签名索引。[Docker Engine 的 Ubuntu 安装说明](https://docs.docker.com/engine/install/ubuntu/)
 
 Docker Hub 连不通时，可以在 Docker daemon 配置自己的可信镜像缓存，或在菜单选择 **3 自定义基础镜像仓库** 并输入三个完整镜像地址。下面的地址是示例，需替换为已经同步这三个镜像的仓库。[Docker Hub 镜像缓存文档](https://docs.docker.com/docker-hub/image-library/mirror/)
 
