@@ -1,0 +1,18 @@
+{
+  "title": "回文串", "difficulty": "easy", "tags": ["字符串", "双指针"],
+  "description": "给定一个仅包含大小写英文字母和数字的非空字符串，判断它是否为回文。回文串正向与反向读取完全相同，比较区分大小写。\n\n1 ≤ 字符串长度 ≤ 100000。",
+  "input_format": "一行字符串 s，不包含空格。",
+  "output_format": "如果是回文串输出 YES，否则输出 NO。",
+  "hint": "从两端向中间比较对应字符。不要把大写字母转换为小写。",
+  "checker": "trim", "time_limit_ms": 1000, "memory_limit_mb": 128, "is_public": true,
+  "testcases": [
+    {"input": "abba\n", "expected": "YES\n", "is_sample": true, "explanation": "反向读取仍为 abba。"},
+    {"input": "abc\n", "expected": "NO\n", "is_sample": true, "explanation": "首尾字符不同。"},
+    {"input": "a\n", "expected": "YES\n"},
+    {"input": "Aa\n", "expected": "NO\n"},
+    {"input": "12321\n", "expected": "YES\n"},
+    {"input": "abca\n", "expected": "NO\n"},
+    {"input": "Z9aa9Z\n", "expected": "YES\n"},
+    {"input": "012210\n", "expected": "YES\n"}
+  ]
+}

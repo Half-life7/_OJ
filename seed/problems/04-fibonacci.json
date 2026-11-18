@@ -1,0 +1,18 @@
+{
+  "title": "斐波那契第 n 项", "difficulty": "easy", "tags": ["动态规划", "递推"],
+  "description": "斐波那契数列定义为 F(0)=0，F(1)=1，n≥2 时 F(n)=F(n-1)+F(n-2)。给定 n，输出 F(n) 的精确整数值，不取模。\n\n0 ≤ n ≤ 90。",
+  "input_format": "一行一个整数 n。",
+  "output_format": "输出 F(n)，并换行。",
+  "hint": "迭代维护前两项可将空间降至 O(1)。C++ 使用 long long，Java 使用 long；直接递归会重复计算。",
+  "checker": "trim", "time_limit_ms": 1000, "memory_limit_mb": 128, "is_public": true,
+  "testcases": [
+    {"input": "0\n", "expected": "0\n", "is_sample": true, "explanation": "按定义 F(0)=0。"},
+    {"input": "10\n", "expected": "55\n", "is_sample": true, "explanation": "从第 0 项起依次为 0,1,1,2,3,5,8,13,21,34,55。"},
+    {"input": "1\n", "expected": "1\n"},
+    {"input": "2\n", "expected": "1\n"},
+    {"input": "20\n", "expected": "6765\n"},
+    {"input": "47\n", "expected": "2971215073\n"},
+    {"input": "80\n", "expected": "23416728348467685\n"},
+    {"input": "90\n", "expected": "2880067194370816120\n"}
+  ]
+}

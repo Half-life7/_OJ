@@ -1,0 +1,18 @@
+{
+  "title": "括号匹配", "difficulty": "easy", "tags": ["栈", "字符串"],
+  "description": "给定仅由 ()、[]、{} 组成的字符串，判断括号是否正确匹配：每个右括号必须对应最近尚未匹配的同类左括号，最后不能有剩余左括号。空串也视为正确匹配。\n\n0 ≤ 字符串长度 ≤ 200000。",
+  "input_format": "一行括号字符串；空行表示空串。",
+  "output_format": "正确匹配输出 YES，否则输出 NO。",
+  "hint": "使用栈。只统计各类括号数量无法判断嵌套顺序是否正确。",
+  "checker": "trim", "time_limit_ms": 1000, "memory_limit_mb": 128, "is_public": true,
+  "testcases": [
+    {"input": "([]){}\n", "expected": "YES\n", "is_sample": true, "explanation": "各类括号的闭合顺序与嵌套顺序一致。"},
+    {"input": "([)]\n", "expected": "NO\n", "is_sample": true, "explanation": "遇到 ) 时，最近未闭合的是 [。"},
+    {"input": "\n", "expected": "YES\n"},
+    {"input": ")\n", "expected": "NO\n"},
+    {"input": "((\n", "expected": "NO\n"},
+    {"input": "{[()()]}\n", "expected": "YES\n"},
+    {"input": "[]{}()\n", "expected": "YES\n"},
+    {"input": "(()))\n", "expected": "NO\n"}
+  ]
+}

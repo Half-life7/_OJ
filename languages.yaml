@@ -1,0 +1,71 @@
+# Commands execute only inside go-judge. Placeholders are replaced as argv data.
+languages:
+  - id: cpp17
+    display: C++17
+    source: main.cpp
+    artifact: main
+    compile: [/usr/bin/g++, -std=c++17, -O2, -DONLINE_JUDGE, -o, main, main.cpp, -lm]
+    run: [./main]
+    probe: [/usr/bin/g++, --version]
+    time_factor: 1
+    memory_factor: 1
+    time_extra_ms: 0
+    memory_extra_mb: 0
+    proc_limit: 1
+    highlight: cpp
+    template: |
+      #include <bits/stdc++.h>
+      using namespace std;
+      int main() {
+          ios::sync_with_stdio(false);
+          cin.tie(nullptr);
+          long long a, b;
+          if (cin >> a >> b) cout << a + b << '\n';
+          return 0;
+      }
+  - id: python3
+    display: Python 3
+    source: main.py
+    artifact: main.py
+    compile: []
+    run: [/usr/bin/python3, -I, -B, main.py]
+    probe: [/usr/bin/python3, --version]
+    time_factor: 3
+    memory_factor: 1
+    time_extra_ms: 0
+    memory_extra_mb: 0
+    proc_limit: 1
+    highlight: python
+    template: |
+      import sys
+      data = list(map(int, sys.stdin.buffer.read().split()))
+      if len(data) >= 2:
+          print(data[0] + data[1])
+  - id: java
+    display: Java
+    source: Main.java
+    artifact: main.jar
+    # This fixed administrator-controlled script packages every generated class,
+    # including nested/anonymous classes and additional top-level helper classes.
+    compile: [/bin/sh, -c, 'mkdir -p classes && /usr/bin/javac -J-XX:ActiveProcessorCount=1 -J-XX:+UseSerialGC -J-XX:-UsePerfData -encoding UTF-8 -d classes Main.java && /usr/bin/jar cf main.jar -C classes .']
+    run: [/usr/bin/java, '-XX:+UseSerialGC', '-XX:ActiveProcessorCount=1', '-XX:-UsePerfData', '-Xshare:auto', '-Dfile.encoding=UTF-8', '-Xss64m', '-Xmx{memory_mb}m', -cp, main.jar, Main]
+    probe: [/bin/sh, -c, '/usr/bin/java -version && /usr/bin/javac -version && /usr/bin/jar --version']
+    time_factor: 2
+    memory_factor: 1
+    time_extra_ms: 0
+    memory_extra_mb: 64
+    proc_limit: 64
+    highlight: java
+    template: |
+      import java.io.*;
+      import java.util.*;
+      // 类名必须为 Main，否则在线评测无法启动程序。
+      public class Main {
+          public static void main(String[] args) throws Exception {
+              Scanner in = new Scanner(System.in);
+              if (in.hasNextLong()) {
+                  long a = in.nextLong(), b = in.nextLong();
+                  System.out.println(a + b);
+              }
+          }
+      }

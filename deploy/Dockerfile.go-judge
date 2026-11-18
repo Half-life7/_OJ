@@ -1,0 +1,13 @@
+# Official image layout: https://docs.goj.ac/install
+# Override with a verified digest for reproducible production deployments.
+ARG GO_JUDGE_IMAGE=criyle/go-judge:latest
+FROM ${GO_JUDGE_IMAGE}
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends g++ python3 default-jdk-headless ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+# Avoid accidentally selecting the upstream /opt/mount.yaml: use built-in mounts.
+WORKDIR /srv/go-judge
+EXPOSE 5050
+ENTRYPOINT ["/opt/go-judge"]
+CMD ["-http-addr=:5050", "-no-fallback", "-time-limit-checker-interval=10ms", "-parallelism=2", "-file-timeout=30m"]

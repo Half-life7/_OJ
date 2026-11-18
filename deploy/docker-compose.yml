@@ -1,0 +1,91 @@
+name: oj
+
+services:
+  sandbox:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.go-judge
+      args:
+        GO_JUDGE_IMAGE: ${GO_JUDGE_IMAGE:-criyle/go-judge:latest}
+    restart: unless-stopped
+    privileged: true
+    shm_size: ${JUDGE_SHM_SIZE:-512m}
+    environment:
+      SANDBOX_TOKEN: ${SANDBOX_TOKEN:?Set SANDBOX_TOKEN in deploy/.env}
+    command:
+      - -http-addr=:5050
+      - -no-fallback
+      - -auth-token=${SANDBOX_TOKEN:?Set SANDBOX_TOKEN in deploy/.env}
+      - -parallelism=${JUDGE_WORKERS:-2}
+      - -time-limit-checker-interval=${JUDGE_CHECK_INTERVAL:-10ms}
+      - -file-timeout=30m
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'curl --fail --silent --max-time 3 -H "Authorization: Bearer $$SANDBOX_TOKEN" http://127.0.0.1:5050/version >/dev/null'
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [judge]
+
+  oj:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.oj
+      args:
+        GO_IMAGE: ${GO_IMAGE:-golang:1.23-bookworm}
+    restart: unless-stopped
+    init: true
+    depends_on:
+      sandbox:
+        condition: service_healthy
+    environment:
+      PORT: "8080"
+      DB_PATH: /var/lib/oj/oj.db
+      SANDBOX: gojudge
+      SANDBOX_URL: http://sandbox:5050
+      SANDBOX_TOKEN: ${SANDBOX_TOKEN:?Set SANDBOX_TOKEN in deploy/.env}
+      LANGUAGES_FILE: /app/languages.yaml
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in deploy/.env}
+      ALLOW_REGISTER: ${ALLOW_REGISTER:-true}
+      COOKIE_SECURE: ${COOKIE_SECURE:-auto}
+      TRUSTED_PROXY: ${TRUSTED_PROXY:-}
+      JUDGE_WORKERS: ${JUDGE_WORKERS:-2}
+      JUDGE_CPUSET: ${JUDGE_CPUSET:-}
+      RERUN_BORDERLINE: ${RERUN_BORDERLINE:-true}
+      MAX_CODE_BYTES: ${MAX_CODE_BYTES:-65536}
+      ARGON_MEMORY_KB: ${ARGON_MEMORY_KB:-19456}
+      ARGON_ITERATIONS: ${ARGON_ITERATIONS:-2}
+      ARGON_PARALLELISM: ${ARGON_PARALLELISM:-1}
+    ports:
+      - "${OJ_BIND:-127.0.0.1}:${PORT:-8080}:8080"
+    volumes:
+      - oj-data:/var/lib/oj
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 100s
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          health=$$(curl --fail --silent --max-time 3 http://127.0.0.1:8080/api/health) &&
+          printf '%s' "$$health" | grep -q '"sandbox_available":true'
+      interval: 5s
+      timeout: 4s
+      retries: 12
+      start_period: 30s
+    networks: [web, judge]
+
+networks:
+  web:
+  judge:
+    internal: true
+
+volumes:
+  oj-data:

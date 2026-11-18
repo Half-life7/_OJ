@@ -1,0 +1,18 @@
+{
+  "title": "A+B", "difficulty": "easy", "tags": ["入门", "整数"],
+  "description": "给定两个整数 A 和 B，输出它们的和。\n\n数据范围：-10^18 ≤ A, B ≤ 10^18。请使用足够宽的整数类型。",
+  "input_format": "一行两个整数 A、B，以空白分隔。",
+  "output_format": "输出一个整数，即 A+B，并换行。",
+  "hint": "C++ 使用 long long，Java 使用 long；Python 整数可直接计算。",
+  "checker": "trim", "time_limit_ms": 1000, "memory_limit_mb": 128, "is_public": true,
+  "testcases": [
+    {"input": "1 2\n", "expected": "3\n", "is_sample": true, "explanation": "1+2=3。"},
+    {"input": "-5 8\n", "expected": "3\n", "is_sample": true, "explanation": "两个整数可以符号不同。"},
+    {"input": "0 0\n", "expected": "0\n"},
+    {"input": "-7 -9\n", "expected": "-16\n"},
+    {"input": "1000000000000000000 1000000000000000000\n", "expected": "2000000000000000000\n"},
+    {"input": "-1000000000000000000 -1000000000000000000\n", "expected": "-2000000000000000000\n"},
+    {"input": "-1000000000000000000 1000000000000000000\n", "expected": "0\n"},
+    {"input": "2147483647 1\n", "expected": "2147483648\n"}
+  ]
+}

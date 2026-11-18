@@ -1,0 +1,10 @@
+data/
+.cache/
+*.exe
+*.db*
+.env
+.env.*
+!.env.example
+deploy/*.env
+deploy/backups/
+node_modules/

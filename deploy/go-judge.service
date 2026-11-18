@@ -1,0 +1,27 @@
+[Unit]
+Description=go-judge isolated execution service
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/lib/go-judge
+EnvironmentFile=/etc/oj/go-judge.env
+ExecStartPre=/bin/sh -c 'test -n "$SANDBOX_TOKEN" && test -n "$JUDGE_WORKERS"'
+ExecStart=/opt/go-judge/go-judge -http-addr=127.0.0.1:5050 -no-fallback -auth-token=${SANDBOX_TOKEN} -parallelism=${JUDGE_WORKERS} -time-limit-checker-interval=10ms -file-timeout=30m
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=120
+StateDirectory=go-judge
+StateDirectoryMode=0700
+Delegate=yes
+CPUAccounting=yes
+MemoryAccounting=yes
+LimitNOFILE=65536
+TasksMax=4096
+# Do not add PrivateUsers/ProtectControlGroups/NoNewPrivileges: the sandbox
+# manager needs namespaces, mounts, cgroups and credential changes.
+
+[Install]
+WantedBy=multi-user.target

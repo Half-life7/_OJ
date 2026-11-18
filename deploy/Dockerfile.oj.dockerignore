@@ -1,0 +1,10 @@
+.git
+.cache
+.env
+**/.env
+**/.env.*
+data
+*.db*
+*.exe
+deploy/*.env
+deploy/backups
