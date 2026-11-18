@@ -46,6 +46,7 @@ type Testcase struct {
 	Expected    string `json:"expected"`
 	Explanation string `json:"explanation"`
 	IsSample    bool   `json:"is_sample"`
+	SampleOnly  bool   `json:"sample_only,omitempty"`
 }
 
 type Limits struct {

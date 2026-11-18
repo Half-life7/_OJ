@@ -59,11 +59,12 @@ func invalidProblemCases() []invalidProblemCase {
 		}},
 		{"blank tag", func(p *model.Problem) { p.Tags = []string{" "} }},
 		{"long Unicode tag", func(p *model.Problem) { p.Tags = []string{strings.Repeat("标", 25)} }},
-		{"too few cases", func(p *model.Problem) { p.Testcases = p.Testcases[:2] }},
+		{"no cases", func(p *model.Problem) { p.Testcases = nil }},
 		{"too many cases", func(p *model.Problem) { p.Testcases = manyAPICases(201, "", "") }},
-		{"no sample", func(p *model.Problem) {
+		{"no graded case", func(p *model.Problem) {
 			for i := range p.Testcases {
-				p.Testcases[i].IsSample = false
+				p.Testcases[i].IsSample = true
+				p.Testcases[i].SampleOnly = true
 			}
 		}},
 		{"large case input", func(p *model.Problem) { p.Testcases[0].Input = strings.Repeat("a", (1<<20)+1) }},

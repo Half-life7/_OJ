@@ -5,17 +5,19 @@ export class APIError extends Error {
 let unauthorized = () => {}, forbidden = () => {};
 export function configureAPI(handlers) { unauthorized = handlers.unauthorized || unauthorized; forbidden = handlers.forbidden || forbidden; }
 
-export async function api(path, { method = 'GET', body, signal, auth = true, timeout = 180000 } = {}) {
+export async function api(path, { method = 'GET', body, signal, auth = true, timeout = 180000, responseType = 'json' } = {}) {
   const controller = new AbortController();
   const relay = () => controller.abort(signal?.reason);
   if (signal?.aborted) relay(); else signal?.addEventListener('abort', relay, { once: true });
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeout);
   try {
-    const headers = { Accept: 'application/json' };
+    const rawBody = body instanceof Blob;
+    const headers = { Accept: responseType === 'blob' ? 'application/zip, application/json' : 'application/json' };
     if (!['GET','HEAD'].includes(method)) headers['X-Requested-With'] = 'oj';
-    if (body !== undefined) headers['Content-Type'] = 'application/json';
-    const response = await fetch(path, { method, credentials: 'same-origin', headers, body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal });
+    if (body !== undefined) headers['Content-Type'] = rawBody ? body.type || 'application/octet-stream' : 'application/json';
+    const response = await fetch(path, { method, credentials: 'same-origin', headers, body: rawBody || body === undefined ? body : JSON.stringify(body), signal: controller.signal });
+    if (response.ok && responseType === 'blob') return await response.blob();
     let data = null;
     if (response.status !== 204) { const text = await response.text(); if (text) { try { data = JSON.parse(text); } catch { throw new APIError('服务返回了无法识别的内容，请稍后重试', response.status); } } }
     if (!response.ok) {

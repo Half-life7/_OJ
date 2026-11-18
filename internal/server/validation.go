@@ -57,10 +57,10 @@ func validateProblem(p *model.Problem, maxCode int64) string {
 		}
 	}
 	p.Tags = tags
-	if len(p.Testcases) < 3 || len(p.Testcases) > 200 {
-		return "每题需要 3–200 个测试用例"
+	if len(p.Testcases) > 200 {
+		return "每题最多 200 个用例（含样例）"
 	}
-	samples, total := 0, 0
+	graded, total := 0, 0
 	for i := range p.Testcases {
 		t := &p.Testcases[i]
 		t.Index = i + 1
@@ -71,12 +71,15 @@ func validateProblem(p *model.Problem, maxCode int64) string {
 			return "样例解释不得超过 10KB"
 		}
 		total += len(t.Input) + len(t.Expected)
-		if t.IsSample {
-			samples++
+		if t.SampleOnly && !t.IsSample {
+			return "仅展示的用例必须是公开样例"
+		}
+		if !t.SampleOnly {
+			graded++
 		}
 	}
-	if samples < 1 {
-		return "至少需要 1 个样例"
+	if graded < 1 {
+		return "至少需要 1 个参与判题的用例"
 	}
 	if total > 16<<20 {
 		return "单题测试数据总量不得超过 16MB"

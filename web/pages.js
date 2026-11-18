@@ -2,6 +2,7 @@ import { el, icon, iconButton, button, link, select, field, badge, DIFFICULTIES,
 import { api, query } from './api.js';
 import { watchSubmission, resultView, codeView } from './results.js';
 import { matchesPath } from './nav.config.js';
+import { hydroImportControl } from './problem-authoring.js';
 
 export function passwordInput(name, autocomplete = 'current-password') {
   const input = el('input',{type:'password',name,id:name,autocomplete,required:true,maxLength:256});
@@ -107,10 +108,11 @@ export async function renderProblems(host,ctx,admin = false) {
   const reset = button('清除筛选',()=>{search.value='';diff.value='';tags.value='';update();},{variant:'text small'});
   const debounced = debounce(()=>update(),300); search.addEventListener('input',debounced); ctx.cleanup(debounced.cancel);
   const filters = el('div',{class:'filter-bar'},el('div',{class:'search-input'},icon('search'),search),diff,tags,reset);
-  if (admin) host.append(pageHeader('题目管理','把好题目带给每一个认真思考的人。',link('', '/admin/problems/new',{class:'btn primary'}))); else {
+  if (admin) host.append(pageHeader('题目管理', '', el('div', { class: 'row wrap' },
+    hydroImportControl(ctx), link('Markdown 建题', '/admin/problems/new?mode=markdown', { class: 'btn' }),
+    link('创建题目', '/admin/problems/new', { class: 'btn primary' })))); else {
     host.append(el('section',{class:'practice-banner'},el('div',{},el('span',{class:'eyebrow'},'YOUR NEXT ACCEPTED STARTS HERE'),el('h1',{},'今天，也向前一步。'),el('p',{},'从一道好题开始，让思考成为习惯。'),el('div',{class:'banner-chips'},el('span',{},icon('code',15),'多语言编程'),el('span',{},icon('activity',15),'即时在线评测'))),el('div',{class:'banner-art','aria-hidden':'true'},el('div',{class:'orbit orbit-one'}),el('div',{class:'orbit orbit-two'}),el('div',{class:'art-code'},icon('code',54)),el('span',{class:'art-badge'},icon('check',15),'Accepted'))));
   }
-  if (admin) host.querySelector('.page-heading a').append(icon('plus',17),'创建题目');
   const heading = el('div',{class:'card-heading'},el('div',{class:'row'},el('h2',{},admin ? '全部题目' : '题库'),summary),!admin && button('随机一题',randomProblem,{variant:'small',icon:'refresh'}));
   const card = el('section',{class:'card problem-card'},heading,filters,list,foot); host.append(card);
   if (!admin && !ctx.user) host.append(el('div',{class:'subtle-callout'},icon('info',16),el('span',{},'登录后可查看做题状态、保存代码草稿和提交评测。'),link('立即登录','/login',{class:'text-link'})));

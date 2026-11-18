@@ -66,6 +66,9 @@ func New(s *store.Store, a *auth.Service, j *judge.Engine, c config.Config) http
 	mux.HandleFunc("GET /api/problems/{id}", h.problem)
 	mux.HandleFunc("GET /api/admin/problems", h.listProblems)
 	mux.HandleFunc("GET /api/admin/problems/{id}", h.problem)
+	mux.HandleFunc("GET /api/admin/problems/{id}/testcases/{index}", h.problemTestcase)
+	mux.HandleFunc("POST /api/admin/problems/hydro", h.importHydro)
+	mux.HandleFunc("GET /api/admin/problems/{id}/hydro", h.exportHydro)
 	mux.HandleFunc("POST /api/admin/problems", h.saveProblem)
 	mux.HandleFunc("PUT /api/admin/problems/{id}", h.saveProblem)
 	mux.HandleFunc("DELETE /api/admin/problems/{id}", h.deleteProblem)
@@ -284,56 +287,154 @@ func (h *Server) problem(w http.ResponseWriter, r *http.Request) {
 			p.EffectiveLimits[l.ID] = judge.EffectiveLimits(p, l)
 		}
 	}
-	write(w, 200, p)
+	writeProblem(w, r, p, admin)
 }
+
+type testSummary struct {
+	Index       int `json:"index"`
+	InputBytes  int `json:"input_bytes"`
+	OutputBytes int `json:"output_bytes"`
+}
+
+func writeProblem(w http.ResponseWriter, r *http.Request, p *model.Problem, admin bool) {
+	if !admin || r.URL.Query().Get("compact") != "1" {
+		write(w, 200, p)
+		return
+	}
+	copy := *p
+	copy.Testcases = []model.Testcase{}
+	hidden := []testSummary{}
+	for _, tc := range p.Testcases {
+		if tc.IsSample {
+			copy.Testcases = append(copy.Testcases, tc)
+		} else {
+			hidden = append(hidden, testSummary{Index: tc.Index, InputBytes: len(tc.Input), OutputBytes: len(tc.Expected)})
+		}
+	}
+	write(w, 200, struct {
+		model.Problem
+		Hidden []testSummary `json:"hidden_testcases"`
+	}{copy, hidden})
+}
+
+func (h *Server) problemTestcase(w http.ResponseWriter, r *http.Request) {
+	if !h.allowed(w, r, "manage", nil) {
+		return
+	}
+	p, ok := h.getProblem(w, r, true)
+	if !ok {
+		return
+	}
+	if r.URL.Query().Get("version") != p.UpdatedAt {
+		fail(w, 409, "problem_changed", "题目已有更新，请重新打开编辑页")
+		return
+	}
+	index, err := strconv.Atoi(r.PathValue("index"))
+	if err == nil {
+		for _, tc := range p.Testcases {
+			if tc.Index == index {
+				write(w, 200, tc)
+				return
+			}
+		}
+	}
+	fail(w, 404, "not_found", "用例不存在")
+}
+
 func (h *Server) saveProblem(w http.ResponseWriter, r *http.Request) {
 	if !h.allowed(w, r, "manage", nil) {
 		return
 	}
-	var p model.Problem
-	if !decode(w, r, &p) {
+	var request struct {
+		model.Problem
+		Markdown *string     `json:"markdown"`
+		Refs     map[int]int `json:"testcase_refs"`
+		Version  string      `json:"version"`
+	}
+	if !decode(w, r, &request) {
 		return
 	}
+	p := request.Problem
+	var old *model.Problem
+	stored := make(map[int]model.Testcase)
 	if r.Method == "PUT" {
-		old, ok := h.getProblem(w, r, true)
+		var ok bool
+		old, ok = h.getProblem(w, r, true)
 		if !ok {
 			return
 		}
+		if (request.Version != "" || len(request.Refs) != 0 || request.Markdown != nil) && request.Version != old.UpdatedAt {
+			fail(w, 409, "problem_changed", "题目已有更新，请重新打开编辑页")
+			return
+		}
+		for _, tc := range old.Testcases {
+			stored[tc.Index] = tc
+		}
+	}
+	if request.Markdown != nil {
+		var err error
+		p, err = parseProblemMarkdown(*request.Markdown, stored)
+		if err != nil {
+			fail(w, 400, "validation_error", err.Error())
+			return
+		}
+	} else {
+		seen := make(map[int]bool)
+		for position, index := range request.Refs {
+			test, ok := stored[index]
+			if !ok || test.IsSample || position < 1 || position > len(p.Testcases) || seen[index] {
+				fail(w, 400, "validation_error", "测试数据引用无效或重复")
+				return
+			}
+			seen[index] = true
+			p.Testcases[position-1] = test
+		}
+	}
+	if old != nil {
 		p.ID = old.ID
 		p.CreatedBy = old.CreatedBy
 	} else {
 		p.ID = 0
 		p.CreatedBy = auth.UserFromContext(r.Context()).ID
+		request.Version = ""
 	}
-	if msg := validateProblem(&p, h.cfg.MaxCodeBytes); msg != "" {
+	if msg := h.validateProblemInput(&p); msg != "" {
 		fail(w, 400, "validation_error", msg)
 		return
+	}
+	if err := h.store.SaveProblemVersion(r.Context(), &p, request.Version); err != nil {
+		if errors.Is(err, store.ErrProblemChanged) {
+			fail(w, 409, "problem_changed", "题目已有更新，请重新打开编辑页")
+			return
+		}
+		internal(w)
+		return
+	}
+	writeProblem(w, r, &p, true)
+}
+
+func (h *Server) validateProblemInput(p *model.Problem) string {
+	if msg := validateProblem(p, h.cfg.MaxCodeBytes); msg != "" {
+		return msg
 	}
 	if len(h.languages) > 0 {
 		for lang := range p.LangLimits {
 			if _, ok := h.languages[lang]; !ok {
-				fail(w, 400, "validation_error", "语言限制包含未知语言")
-				return
+				return "语言限制包含未知语言"
 			}
 		}
 		for lang := range p.Templates {
 			if _, ok := h.languages[lang]; !ok {
-				fail(w, 400, "validation_error", "模板包含未知语言")
-				return
+				return "模板包含未知语言"
 			}
 		}
 		for _, sol := range p.Solutions {
 			if _, ok := h.languages[sol.Language]; !ok {
-				fail(w, 400, "validation_error", "参考答案包含未知语言")
-				return
+				return "参考答案包含未知语言"
 			}
 		}
 	}
-	if e := h.store.SaveProblem(r.Context(), &p); e != nil {
-		internal(w)
-		return
-	}
-	write(w, 200, p)
+	return ""
 }
 func (h *Server) deleteProblem(w http.ResponseWriter, r *http.Request) {
 	if !h.allowed(w, r, "manage", nil) {

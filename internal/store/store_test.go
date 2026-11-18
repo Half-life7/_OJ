@@ -73,7 +73,7 @@ func TestMigrationsReopenAndForeignKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	var n int
-	if err = s.DB.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&n); err != nil || n != 1 {
+	if err = s.DB.QueryRow("SELECT count(*) FROM schema_migrations").Scan(&n); err != nil || n != 2 {
 		t.Fatalf("migration count %d: %v", n, err)
 	}
 	if err = s.DB.QueryRow("PRAGMA foreign_keys").Scan(&n); err != nil || n != 1 {

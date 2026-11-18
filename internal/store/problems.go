@@ -10,7 +10,9 @@ import (
 	"oj/internal/model"
 )
 
-const problemColumns = `p.id,p.title,p.difficulty,p.description,p.input_format,p.output_format,p.hint,p.time_limit_ms,p.memory_limit_mb,p.checker,p.float_eps,p.is_public,p.created_by,p.submit_count,p.accepted_count,p.created_at,p.updated_at,(SELECT count(*) FROM testcases tc WHERE tc.problem_id=p.id)`
+const problemColumns = `p.id,p.title,p.difficulty,p.description,p.input_format,p.output_format,p.hint,p.time_limit_ms,p.memory_limit_mb,p.checker,p.float_eps,p.is_public,p.created_by,p.submit_count,p.accepted_count,p.created_at,p.updated_at,(SELECT count(*) FROM testcases tc WHERE tc.problem_id=p.id AND tc.sample_only=0)`
+
+var ErrProblemChanged = errors.New("problem changed since it was opened")
 
 type scanner interface{ Scan(...any) error }
 
@@ -126,13 +128,13 @@ func loadAssociations(ctx context.Context, q querier, p *model.Problem, full boo
 	if err != nil || !full {
 		return err
 	}
-	rows, err = q.QueryContext(ctx, "SELECT idx,input,expected,is_sample,explanation FROM testcases WHERE problem_id=? ORDER BY idx", p.ID)
+	rows, err = q.QueryContext(ctx, "SELECT idx,input,expected,is_sample,explanation,sample_only FROM testcases WHERE problem_id=? ORDER BY idx", p.ID)
 	if err != nil {
 		return err
 	}
 	for rows.Next() {
 		var tc model.Testcase
-		if err = rows.Scan(&tc.Index, &tc.Input, &tc.Expected, &tc.IsSample, &tc.Explanation); err != nil {
+		if err = rows.Scan(&tc.Index, &tc.Input, &tc.Expected, &tc.IsSample, &tc.Explanation, &tc.SampleOnly); err != nil {
 			rows.Close()
 			return err
 		}
@@ -196,6 +198,10 @@ func loadAssociations(ctx context.Context, q querier, p *model.Problem, full boo
 }
 
 func (s *Store) SaveProblem(ctx context.Context, p *model.Problem) error {
+	return s.SaveProblemVersion(ctx, p, "")
+}
+
+func (s *Store) SaveProblemVersion(ctx context.Context, p *model.Problem, version string) error {
 	if p == nil {
 		return errors.New("nil problem")
 	}
@@ -204,6 +210,15 @@ func (s *Store) SaveProblem(ctx context.Context, p *model.Problem) error {
 		return err
 	}
 	defer tx.Rollback()
+	if version != "" {
+		var current string
+		if err = tx.QueryRowContext(ctx, "SELECT updated_at FROM problems WHERE id=?", p.ID).Scan(&current); err != nil {
+			return err
+		}
+		if current != version {
+			return ErrProblemChanged
+		}
+	}
 	copy := *p
 	if err = saveProblem(ctx, tx, &copy); err != nil {
 		return err
@@ -212,6 +227,27 @@ func (s *Store) SaveProblem(ctx context.Context, p *model.Problem) error {
 		return err
 	}
 	*p = copy
+	return nil
+}
+
+// CreateProblems inserts a validated import batch in a single transaction.
+func (s *Store) CreateProblems(ctx context.Context, problems []model.Problem) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	created := append([]model.Problem(nil), problems...)
+	for i := range created {
+		created[i].ID = 0
+		if err := saveProblem(ctx, tx, &created[i]); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	copy(problems, created)
 	return nil
 }
 
@@ -280,12 +316,15 @@ func saveProblem(ctx context.Context, tx *sql.Tx, p *model.Problem) error {
 			return err
 		}
 	}
+	p.TestcaseCount = 0
 	for i, tc := range p.Testcases {
-		if _, err := tx.ExecContext(ctx, "INSERT INTO testcases(problem_id,idx,input,expected,is_sample,explanation) VALUES(?,?,?,?,?,?)", p.ID, i+1, tc.Input, tc.Expected, tc.IsSample, tc.Explanation); err != nil {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO testcases(problem_id,idx,input,expected,is_sample,explanation,sample_only) VALUES(?,?,?,?,?,?,?)", p.ID, i+1, tc.Input, tc.Expected, tc.IsSample, tc.Explanation, tc.SampleOnly); err != nil {
 			return err
 		}
+		if !tc.SampleOnly {
+			p.TestcaseCount++
+		}
 	}
-	p.TestcaseCount = len(p.Testcases)
 	for lang, code := range p.Templates {
 		if _, err := tx.ExecContext(ctx, "INSERT INTO problem_templates(problem_id,language,code) VALUES(?,?,?)", p.ID, lang, code); err != nil {
 			return err

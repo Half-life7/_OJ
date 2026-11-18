@@ -67,6 +67,23 @@ func TestProbeLetsCompilerUseSandboxWallTime(t *testing.T) {
 	}
 }
 
+func TestEvaluateSkipsDisplayOnlySamples(t *testing.T) {
+	lang := Language{ID: "test", TimeFactor: 1, MemoryFactor: 1}
+	engine := New(nil, instantSandbox{}, map[string]Language{lang.ID: lang}, config.Config{Workers: 1})
+	if err := engine.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = engine.Close(context.Background()) })
+	p := &model.Problem{Testcases: []model.Testcase{
+		{Index: 1, IsSample: true, SampleOnly: true, Expected: "demonstration only"},
+		{Index: 2, Expected: "ok\n"},
+	}}
+	result, err := engine.Evaluate(context.Background(), p, lang.ID, "code")
+	if err != nil || result.Status != "accepted" || result.Total != 1 || result.Passed != 1 || len(result.CaseResults) != 1 || result.CaseResults[0].Index != 2 {
+		t.Fatalf("display-only case affected judging: %+v, %v", result, err)
+	}
+}
+
 func TestCloseDrainsActiveEvaluation(t *testing.T) {
 	fake := &blockingSandbox{started: make(chan struct{}), release: make(chan struct{})}
 	language := Language{

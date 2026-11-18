@@ -4,6 +4,8 @@ import {
   errorState, pageHeader, pagination, confirmAction, markdown,
 } from './ui.js';
 import { api, query } from './api.js';
+import { renderMarkdownEditor } from './admin-markdown.js';
+import { editorTestcases, hydroExportButton } from './problem-authoring.js';
 
 const FALLBACK_LANGUAGES = [
   { id: 'cpp17', display: 'C++17', highlight: 'cpp', time_factor: 1, time_extra_ms: 0, memory_factor: 1, memory_extra_mb: 0, template: '' },
@@ -58,18 +60,22 @@ export async function renderAdminEditor(host, ctx, id) {
   let problem;
   try {
     problem = id
-      ? await api(`/api/admin/problems/${id}`, { signal: ctx.signal })
+      ? await api(`/api/admin/problems/${id}?compact=1`, { signal: ctx.signal })
       : defaultProblem();
   } catch (error) {
     if (error.name !== 'AbortError') host.replaceChildren(errorState(error, () => ctx.navigate(location.href, { replace: true, force: true })));
     return;
   }
   if (!ctx.alive()) return;
+  if (new URLSearchParams(location.search).get('mode') === 'markdown') {
+    renderMarkdownEditor(host, ctx, id, problem);
+    return;
+  }
 
   let dirty = false;
   let saving = false;
   let tags = [...(problem.tags || [])];
-  let testcases = (problem.testcases?.length ? problem.testcases : defaultProblem().testcases).map(test => ({ ...test }));
+  const testcases = editorTestcases(problem);
   let solutions = (problem.solutions || []).map(solution => ({ ...solution }));
   const knownLanguages = new Map([...(ctx.languages?.length ? ctx.languages : FALLBACK_LANGUAGES)].map(item => [item.id, item]));
   for (const languageID of [
@@ -140,7 +146,7 @@ export async function renderAdminEditor(host, ctx, id) {
         field('输入格式', inputFormat),
         field('输出格式', outputFormat)),
       field('提示', hint, '可留空。')),
-    section('测试数据', '至少 1 个样例和 3 个测试用例；单用例输入与输出各不超过 1 MB。',
+    section('测试数据', '至少 1 组参与判题的测试。可添加多个公开样例，单用例输入与输出各不超过 1 MB。',
       el('div', { class: 'testcase-toolbar' },
         el('div', { class: 'row' },
           button('添加样例', () => addTestcase(true), { variant: 'small', icon: 'plus' }),
@@ -166,7 +172,9 @@ export async function renderAdminEditor(host, ctx, id) {
 
   host.replaceChildren(
     pageHeader(id ? '编辑题目' : '创建题目', id ? `题目 #${id} · 每次保存都会校验全部测试数据配置。` : '设计数据、设置语言资源上限并验证参考答案。',
-      el('div', { class: 'row' }, link('返回题目管理', '/admin/problems', { class: 'btn' }), verifyButton, saveButton)),
+      el('div', { class: 'row wrap' }, link('返回题目管理', '/admin/problems', { class: 'btn' }),
+        link('Markdown 编辑', `${id ? `/admin/problems/${id}/edit` : '/admin/problems/new'}?mode=markdown`, { class: 'btn' }),
+        id && hydroExportButton(ctx, id), verifyButton, saveButton)),
     form,
     el('section', { class: 'card verify-panel' }, el('div', { class: 'card-heading' }, el('h2', {}, '数据验证结果')), verifyHost));
 
@@ -232,9 +240,11 @@ export async function renderAdminEditor(host, ctx, id) {
   tagInput.addEventListener('change', () => { addTag(tagInput.value); tagInput.value = ''; });
 
   function addTestcase(sample) {
+    if (testcases.length >= 200) { toast('每题最多 200 个用例（含样例）', 'danger'); return; }
     testcases.push({ input: '', expected: '', explanation: '', is_sample: sample });
     renderTestcases(); markDirty();
-    requestAnimationFrame(() => testcaseHost.querySelector('.testcase-editor:last-child textarea')?.focus());
+    const number = testcases.filter(test => test.is_sample === sample).length;
+    requestAnimationFrame(() => testcaseHost.querySelector(`[aria-label="${sample ? '样例' : '用例'} ${number} 输入"]`)?.focus());
   }
 
   function renderTestcases() {
@@ -245,11 +255,37 @@ export async function renderAdminEditor(host, ctx, id) {
     samples.forEach((test, index) => testcaseHost.append(testcaseCard(test, index)));
     if (hidden.length) testcaseHost.append(el('h3', { class: 'subsection-title' }, '隐藏测试用例', badge(String(hidden.length), 'muted')));
     hidden.forEach((test, index) => testcaseHost.append(testcaseCard(test, index)));
-    if (!testcases.length) testcaseHost.append(empty('还没有测试数据', '至少添加一个样例和三个用例。'));
+    if (!testcases.length) testcaseHost.append(empty('还没有测试数据', '至少添加一组参与判题的测试。'));
   }
 
   function testcaseCard(test, groupIndex) {
-    const allIndex = testcases.indexOf(test);
+    const remove = iconButton('trash', '删除此测试数据', () => {
+      testcases.splice(testcases.indexOf(test), 1);
+      renderTestcases(); markDirty();
+    }, { class: 'compact-icon danger-text' });
+    const caption = badge(`${test.is_sample ? '样例' : '用例'} ${groupIndex + 1}`, test.is_sample ? 'accent' : 'muted');
+    if (test.stored || test.collapsed) {
+      const open = button('加载用例', async () => {
+        if (test.stored) {
+          setBusy(open, true, '正在加载…');
+          try {
+            const item = await api(`/api/admin/problems/${id}/testcases/${test.index}?version=${encodeURIComponent(problem.updated_at)}`, { signal: ctx.signal });
+            Object.assign(test, item, { stored: false });
+          } catch (error) {
+            if (error.name !== 'AbortError') toast(error.message, 'danger');
+            return;
+          } finally {
+            setBusy(open, false);
+          }
+        }
+        test.collapsed = false;
+        renderTestcases();
+      }, { variant: 'small' });
+      const size = test.input_bytes + test.output_bytes;
+      return el('article', { class: 'testcase-editor testcase-summary' },
+        el('div', { class: 'row wrap' }, caption, el('span', { class: 'muted small-text' }, `${size.toLocaleString('zh-CN')} 字节`)),
+        el('div', { class: 'row' }, open, remove));
+    }
     const caseInput = textarea({ rows: 4, value: test.input || '', 'aria-label': `${test.is_sample ? '样例' : '用例'} ${groupIndex + 1} 输入`, placeholder: '输入数据' });
     const expected = textarea({ rows: 4, value: test.expected || '', 'aria-label': `${test.is_sample ? '样例' : '用例'} ${groupIndex + 1} 输出`, placeholder: '期望输出' });
     const explanation = textarea({ rows: 3, value: test.explanation || '', 'aria-label': '样例解释', placeholder: '可选的样例解释' });
@@ -258,16 +294,15 @@ export async function renderAdminEditor(host, ctx, id) {
     explanation.addEventListener('input', () => { test.explanation = explanation.value; });
     const card = el('article', { class: 'testcase-editor' },
       el('div', { class: 'testcase-heading' },
-        el('div', { class: 'row' }, badge(`${test.is_sample ? '样例' : '用例'} ${groupIndex + 1}`, test.is_sample ? 'accent' : 'muted'),
+        el('div', { class: 'row' }, caption,
           el('span', { class: 'muted small-text' }, `${new TextEncoder().encode(caseInput.value).length + new TextEncoder().encode(expected.value).length} 字节`)),
-        el('div', { class: 'row' },
+        el('div', { class: 'row wrap' },
           labelCheckbox('作为样例', test.is_sample, checked => {
-            test.is_sample = checked; renderTestcases(); markDirty();
+            test.is_sample = checked;
+            if (!checked) test.sample_only = false;
+            renderTestcases(); markDirty();
           }),
-          iconButton('trash', '删除此测试数据', () => {
-            if (testcases.length <= 1) { toast('至少保留一个测试用例', 'danger'); return; }
-            testcases.splice(allIndex, 1); renderTestcases(); markDirty();
-          }, { class: 'compact-icon danger-text' }))),
+          test.is_sample && labelCheckbox('仅在题面展示', test.sample_only, checked => { test.sample_only = checked; markDirty(); }), remove)),
       el('div', { class: 'testcase-io-grid' }, field('输入', caseInput), field('期望输出', expected)),
       test.is_sample && field('解释', explanation));
     return card;
@@ -292,16 +327,32 @@ export async function renderAdminEditor(host, ctx, id) {
       byStem.set(match[1], entry);
     }
     const imported = [];
+    const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+    const encoder = new TextEncoder();
+    let total = testcases.reduce((size, test) => size + (test.stored
+      ? test.input_bytes + test.output_bytes
+      : encoder.encode(test.input).length + encoder.encode(test.expected).length), 0);
     for (const [stem, pair] of [...byStem.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh-CN', { numeric: true }))) {
       if (!pair.inputFile || !pair.outputFile) continue;
-      const [inputText, outputText] = await Promise.all([pair.inputFile.text(), pair.outputFile.text()]);
-      if (inputText.length > 1 << 20 || outputText.length > 1 << 20) {
+      if (pair.inputFile.size > 1 << 20 || pair.outputFile.size > 1 << 20) {
         toast(`${stem} 超过单用例 1 MB 限制，已跳过`, 'danger');
         continue;
       }
-      imported.push({ input: inputText, expected: outputText, explanation: '', is_sample: false });
+      total += pair.inputFile.size + pair.outputFile.size;
+      if (total > 16 << 20) { toast('单题测试数据总量不得超过 16 MB', 'danger'); return; }
+      let inputText, outputText;
+      try {
+        const buffers = await Promise.all([pair.inputFile.arrayBuffer(), pair.outputFile.arrayBuffer()]);
+        [inputText, outputText] = buffers.map(buffer => decoder.decode(buffer));
+      } catch {
+        toast(`${stem} 无法按 UTF-8 读取`, 'danger');
+        return;
+      }
+      imported.push({ input: inputText, expected: outputText, explanation: '', is_sample: false,
+        collapsed: true, input_bytes: pair.inputFile.size, output_bytes: pair.outputFile.size });
     }
     if (!imported.length) { toast('没有找到配对的 .in / .out（或 .ans）文件', 'danger'); return; }
+    if (testcases.length + imported.length > 200) { toast('每题最多 200 个用例（含样例）', 'danger'); return; }
     testcases.push(...imported); renderTestcases(); markDirty();
     toast(`已导入 ${imported.length} 组测试数据`);
   });
@@ -411,9 +462,11 @@ export async function renderAdminEditor(host, ctx, id) {
       checker: checker.value,
       float_eps: checker.value === 'float' ? Number(floatEps.value) : 1e-6,
       is_public: publicToggle.checked,
+      version: problem.updated_at || '',
+      testcase_refs: Object.fromEntries(testcases.flatMap((test, index) => test.stored ? [[index + 1, test.index]] : [])),
       testcases: testcases.map(test => ({
         input: test.input || '', expected: test.expected || '',
-        explanation: test.explanation || '', is_sample: !!test.is_sample,
+        explanation: test.explanation || '', is_sample: !!test.is_sample, sample_only: !!test.sample_only,
       })),
       templates: { ...templates },
       lang_limits: Object.fromEntries(Object.entries(localLimits).filter(([, value]) => value.time_limit_ms || value.memory_limit_mb)),
@@ -437,13 +490,10 @@ export async function renderAdminEditor(host, ctx, id) {
     if (!Number(memoryLimit.value) || Number(memoryLimit.value) < 16 || Number(memoryLimit.value) > 2048) {
       setInlineError(memoryLimit, '基准内存限制应为 16–2048 MB。'); errors.push(memoryLimit);
     }
-    if (!testcases.some(test => test.is_sample)) {
-      toast('至少需要一个样例', 'danger'); errors.push(title);
+    if (!testcases.some(test => !test.sample_only)) {
+      toast('至少需要一组参与判题的测试', 'danger'); errors.push(title);
     }
-    if (testcases.length < 3) {
-      toast('至少需要三个测试用例（含样例）', 'danger'); errors.push(title);
-    }
-    if (testcases.some(test => test.input.length > 1 << 20 || test.expected.length > 1 << 20)) {
+    if (testcases.some(test => !test.stored && (test.input.length > 1 << 20 || test.expected.length > 1 << 20))) {
       toast('单个测试用例的输入或输出不能超过 1 MB', 'danger'); errors.push(title);
     }
     if (solutions.some(solution => !solution.code.trim())) {
@@ -464,7 +514,7 @@ export async function renderAdminEditor(host, ctx, id) {
     validationSummary.hidden = true;
     try {
       const body = buildProblem();
-      problem = await api(id ? `/api/admin/problems/${id}` : '/api/admin/problems', {
+      problem = await api(id ? `/api/admin/problems/${id}?compact=1` : '/api/admin/problems?compact=1', {
         method: id ? 'PUT' : 'POST', body, signal: ctx.signal,
       });
       dirty = false;

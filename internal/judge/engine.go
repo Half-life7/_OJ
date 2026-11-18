@@ -595,13 +595,22 @@ func (e *Engine) Evaluate(ctx context.Context, p *model.Problem, language, code 
 	if p == nil || len(p.Testcases) == 0 {
 		return nil, ErrInvalidSubmission
 	}
+	total := 0
+	for _, testcase := range p.Testcases {
+		if !testcase.SampleOnly {
+			total++
+		}
+	}
+	if total == 0 {
+		return nil, ErrInvalidSubmission
+	}
 	core, err := e.acquire(op)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { e.slots <- core }()
 	limits := EffectiveLimits(p, l)
-	result := &model.Submission{ProblemID: p.ID, ProblemTitle: p.Title, Language: language, Status: "accepted", Total: len(p.Testcases), CaseResults: []model.CaseResult{}}
+	result := &model.Submission{ProblemID: p.ID, ProblemTitle: p.Title, Language: language, Status: "accepted", Total: total, CaseResults: []model.CaseResult{}}
 	compiled, err := e.compile(op, l, code, core, limits)
 	if err != nil {
 		return nil, err
@@ -613,6 +622,9 @@ func (e *Engine) Evaluate(ctx context.Context, p *model.Problem, language, code 
 		return result, nil
 	}
 	for i, tc := range p.Testcases {
+		if tc.SampleOnly {
+			continue
+		}
 		r, err := e.runCase(op, sandbox.RunRequest{Language: l, ArtifactID: compiled.ArtifactID, Input: tc.Input, Limits: limits, CPUSet: core})
 		if err != nil {
 			return nil, err

@@ -211,11 +211,26 @@ CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o oj ./cmd/oj
 管理员在 `/admin/problems/new` 创建题目：
 
 - 基准时间限制范围 1–30000 ms，基准内存 16–2048 MB。
-- 每题 3–200 个测试数据、至少 1 个样例、单用例输入/输出各不超过 1 MB、总量不超过 16 MB。
+- 每题至少 1 组参与判题的测试，样例可以有多组。样例与用例合计最多 200 组，单组输入和输出各限 1 MB，总量限 16 MB。
 - 支持 `.in` / `.out` 或 `.in` / `.ans` 多文件按文件名主干配对导入。
 - 判题方式为 `exact`、`trim`（默认）或 `float`。
 - 分语言覆盖时间和内存均为可选，留空使用语言倍率。
 - 可保存最多 3 份参考答案；“验证测试数据”会用它们依次运行全部用例。
+
+### Hydro ZIP
+
+题目管理页的「导入 Hydro ZIP」支持一个或多个普通输入输出题。导入后题目为私有，可在编辑页检查后发布。编辑页的「导出 Hydro ZIP」生成含 `problem.yaml`、Markdown 题面和 `testdata/` 的单题包。支持有题面清单的新包、旧版 `problem.md` / `problem_zh.md`、显式 `cases` 与同名 `.in` / `.out` 或 `.ans`。多语言题面优先选中文。Hydro `default` 和 `strict` 分别转换为本站的行末空白比较和精确比较。
+
+题面中的 `inputN` / `outputN` 会作为公开样例导入。正式判题使用 `testdata/` 中的测试。导入导出支持 `cc`、`py3`、`java` 的资源倍率。交互、SPJ、分组计分、题面内的 Hydro 附件链接和其他依赖 Hydro 特殊评测的配置会返回错误。ZIP 上传限 24 MB。见 [Hydro CLI 文档](https://hydro.js.org/zh/docs/Hydro/system/cli)。
+
+### 高级 Markdown 建题
+
+通过题目管理页的「Markdown 建题」或已有题目的「Markdown 编辑」入口使用。开头的 YAML 配置区可编辑标题、标签、公开状态、比较规则、资源限制、语言模板和参考答案。正文可以用 `## 题目描述`、`## 输入格式`、`## 输出格式`、`## 提示` 与 `## 测试用例` 分节。
+
+- `input1` / `output1` 围栏是一组公开样例，`input2` / `output2` 可继续添加。`sample-note1` 是可选解释。
+- `test-input1` / `test-output1` 围栏是一组隐藏测试。编号同组对应，围栏里的正文作为实际输入输出。
+- 样例围栏可加 `display-only`，表示仅在题面和自测使用。用例围栏可加 `noeol`，表示数据没有末尾换行。
+- 表单只显示已保存隐藏用例的大小，点击「加载用例」查看正文。Markdown 用空的 `test-ref编号` 围栏引用这些数据。保留该围栏即可原样保存，删除该围栏会在保存时删除对应数据。
 
 ### 新增或修改语言
 

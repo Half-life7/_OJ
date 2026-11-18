@@ -96,15 +96,16 @@ export async function renderWorkspace(host, ctx, id) {
   const paneScroller = el('div', { class: 'problem-scroll' });
   const tags = el('div', { class: 'tag-list' }, ...(problem.tags || []).map(tag => badge(tag)));
   const currentLimit = el('span', { class: 'limit-pill' }, icon('clock', 14), limitText(problem, language));
+  const samples = (problem.testcases || []).filter(test => test.is_sample);
   paneScroller.append(
     el('header', { class: 'problem-heading' },
       el('div', { class: 'problem-kicker' }, el('span', { class: 'mono muted' }, `#${problem.id}`), difficulty(problem.difficulty), currentLimit),
       el('h1', {}, problem.title), tags),
     el('div', { class: 'statement-section' }, markdown(problem.description || '暂无题目描述。')),
-    el('section', { class: 'statement-section' }, el('h2', {}, '输入格式'), markdown(problem.input_format || '未提供。')),
-    el('section', { class: 'statement-section' }, el('h2', {}, '输出格式'), markdown(problem.output_format || '未提供。')),
-    el('section', { class: 'statement-section' }, el('h2', {}, '样例'),
-      ...(problem.testcases || []).filter(test => test.is_sample).map((sample, index) => sampleBlock(sample, index, useSample))),
+    problem.input_format && el('section', { class: 'statement-section' }, el('h2', {}, '输入格式'), markdown(problem.input_format)),
+    problem.output_format && el('section', { class: 'statement-section' }, el('h2', {}, '输出格式'), markdown(problem.output_format)),
+    samples.length && el('section', { class: 'statement-section' }, el('h2', {}, '样例'),
+      ...samples.map((sample, index) => sampleBlock(sample, index, useSample))),
     problem.hint && el('details', { class: 'hint-disclosure' }, el('summary', {}, icon('info', 16), '查看提示'), markdown(problem.hint)));
   descriptionPanel.append(paneScroller);
 
