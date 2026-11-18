@@ -1,7 +1,14 @@
-ARG GO_IMAGE=golang:1.23-bookworm
 ARG DEBIAN_IMAGE=debian:bookworm-slim
+ARG GO_IMAGE=${DEBIAN_IMAGE}
 FROM ${GO_IMAGE} AS build
 ARG GOPROXY=https://proxy.golang.org,direct
+ARG DEBIAN_MIRROR_BASE
+ARG GO_TOOLCHAIN_URL=https://go.dev/dl
+COPY deploy/install-debian-packages.sh deploy/install-go-toolchain.sh /tmp/
+RUN if ! command -v go >/dev/null; then \
+        sh /tmp/install-debian-packages.sh ca-certificates curl && sh /tmp/install-go-toolchain.sh; \
+    fi
+ENV PATH="/usr/local/go/bin:${PATH}"
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download

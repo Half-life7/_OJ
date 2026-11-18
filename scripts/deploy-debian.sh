@@ -67,13 +67,14 @@ if [[ $# -eq 0 && -t 0 ]]; then
     export DOCKER_APT_URL="${DOCKER_APT_URL:-https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/$distribution}"
     export DEBIAN_MIRROR_BASE="${DEBIAN_MIRROR_BASE:-http://mirrors.tuna.tsinghua.edu.cn}"
     export GOPROXY="${GOPROXY:-https://goproxy.cn}"
+    export GO_TOOLCHAIN_URL="${GO_TOOLCHAIN_URL:-https://mirror.nju.edu.cn/golang}"
   fi
   if [[ $mode == 3 ]]; then
     printf '请输入仓库中已同步的完整镜像地址（含标签或 digest）。\n'
-    read -r -p 'Go 构建镜像（golang:1.23-bookworm）：' GO_IMAGE || fail '未输入 Go 镜像地址。'
+    read -r -p 'Go 构建镜像（留空时复用 Debian 镜像并下载 Go 工具链）：' GO_IMAGE || fail '未完成镜像配置。'
     read -r -p 'Debian 运行镜像（debian:bookworm-slim）：' DEBIAN_IMAGE || fail '未输入 Debian 镜像地址。'
     read -r -p 'go-judge 沙箱镜像（criyle/go-judge:latest）：' GO_JUDGE_IMAGE || fail '未输入 go-judge 镜像地址。'
-    [[ -n $GO_IMAGE && -n $DEBIAN_IMAGE && -n $GO_JUDGE_IMAGE ]] || fail '自定义模式需要三个镜像地址。'
+    [[ -n $DEBIAN_IMAGE && -n $GO_JUDGE_IMAGE ]] || fail '自定义模式需要 Debian 和 go-judge 镜像地址。'
     export GO_IMAGE DEBIAN_IMAGE GO_JUDGE_IMAGE
   fi
   if [[ $mode == 4 ]]; then
@@ -101,6 +102,13 @@ for candidate in "$script_dir/.." "$script_dir" "$launch_dir" "$project_dir"; do
     break
   fi
 done
+previous_env=
+if ! $offline && is_project "$project_dir" && [[ ! -f $project_dir/deploy/install-go-toolchain.sh ]]; then
+  previous_project=$(cd -- "$project_dir" && pwd -P)
+  previous_env="$previous_project/deploy/.env"
+  project_dir="$previous_project-updated"
+  printf '检测到旧版构建配置。新版源码目录：%s\n' "$project_dir"
+fi
 if ! is_project "$project_dir"; then
   [[ ! -e $project_dir && ! -L $project_dir ]] || fail "$project_dir 已存在，请在新的目录重新运行。"
   source_mode=1
@@ -140,6 +148,12 @@ if ! is_project "$project_dir"; then
       tar -xzf "$source_archive" --strip-components=1 --no-same-owner --no-same-permissions -C "$source_tmp/project"
   ) || fail '源码归档无法解压。'
   is_project "$source_tmp/project" || fail '归档中未找到完整的 OJ 项目。'
+  if ! $offline && [[ ! -f $source_tmp/project/deploy/install-go-toolchain.sh ]]; then
+    fail '归档仍是旧版构建配置。请使用最新版源码。'
+  fi
+  if [[ -f $previous_env ]]; then
+    install -m 0600 -- "$previous_env" "$source_tmp/project/deploy/.env"
+  fi
   mv -T -n -- "$source_tmp/project" "$project_dir"
   [[ ! -e $source_tmp/project ]] || fail "$project_dir 已存在，未覆盖该目录。"
   rm -rf -- "$source_tmp"
@@ -236,6 +250,10 @@ chmod 0600 deploy/.env
 if grep -Eq '^(SANDBOX_TOKEN|ADMIN_PASSWORD)=replace-with-' deploy/.env; then
   fail '请先把 deploy/.env 中的示例 token 和管理员密码换成随机值。'
 fi
+# Older templates set the old builder explicitly. Preserve custom image overrides.
+if [[ ! ${GO_IMAGE+x} ]] && grep -qx 'GO_IMAGE=golang:1.23-bookworm' deploy/.env; then
+  export GO_IMAGE=
+fi
 
 "${compose[@]}" config --quiet
 if $offline; then
@@ -256,7 +274,7 @@ if $offline; then
   printf '使用本地镜像启动 OJ 和 go-judge，等待健康检查。\n'
 else
   printf '构建 OJ 和 go-judge 镜像。\n'
-  "${compose[@]}" build || fail '镜像构建失败。若下载超时，请参阅 README 中的镜像源配置或离线部署。'
+  "${compose[@]}" build || fail '镜像构建失败。若镜像下载超时，请重跑脚本并选择自定义镜像仓库或离线部署。'
   printf '启动 OJ 和 go-judge，等待健康检查。\n'
 fi
 if ! "${compose[@]}" up --no-build --pull never --wait --wait-timeout 240; then

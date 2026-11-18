@@ -39,9 +39,10 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.oj
       args:
-        GO_IMAGE: ${GO_IMAGE:-golang:1.23-bookworm}
+        GO_IMAGE: ${GO_IMAGE:-${DEBIAN_IMAGE:-debian:bookworm-slim}}
         DEBIAN_IMAGE: ${DEBIAN_IMAGE:-debian:bookworm-slim}
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+        GO_TOOLCHAIN_URL: ${GO_TOOLCHAIN_URL:-https://go.dev/dl}
         DEBIAN_MIRROR_BASE: ${DEBIAN_MIRROR_BASE:-}
     restart: unless-stopped
     init: true

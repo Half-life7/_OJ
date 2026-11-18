@@ -64,19 +64,20 @@ sudo docker compose --env-file deploy/.env -f deploy/docker-compose.yml stop
 
 #### 中国大陆服务器的下载源
 
-Docker 安装包、Docker 基础镜像和构建依赖使用不同的下载源。服务器能访问 Docker Hub 或已配置可用的镜像加速时，在部署菜单选择 **1 国内软件源** 即可。清华镜像提供 Docker CE 和 Debian 软件包，Go 模块由 Goproxy.cn 下载，校验保持开启。[Docker CE 镜像](https://mirrors.tuna.tsinghua.edu.cn/help/docker-ce/) · [Debian 镜像](https://mirrors.tuna.tsinghua.edu.cn/help/debian/) · [Goproxy.cn](https://goproxy.cn/)
+Docker 安装包、Docker 基础镜像和构建依赖使用不同的下载源。服务器能访问 Docker Hub 或已配置可用的镜像加速时，在部署菜单选择 **1 国内软件源** 即可。OJ 的构建和运行共用 Debian 基础镜像，国内模式从南京大学镜像下载 Go 工具链并核对官方 SHA-256，从 Goproxy.cn 下载 Go 模块。清华镜像提供 Docker CE 和 Debian 软件包。[Docker CE 镜像](https://mirrors.tuna.tsinghua.edu.cn/help/docker-ce/) · [Go 工具链镜像](https://mirror.nju.edu.cn/golang/) · [Goproxy.cn](https://goproxy.cn/)
 
 脚本按宿主机发行版选择 Docker CE 的 Debian 或 Ubuntu 仓库，`DOCKER_APT_URL` 可覆盖脚本使用的地址。宿主机的系统软件源和管理员已有的 Docker 源由宿主机管理。`DEBIAN_MIRROR_BASE` 只在构建镜像时替换容器内的 Debian 和 Debian Security 源，APT 仍校验软件包的签名索引。[Docker Engine 的 Ubuntu 安装说明](https://docs.docker.com/engine/install/ubuntu/)
 
-Docker Hub 连不通时，可以在 Docker daemon 配置自己的可信镜像缓存，或在菜单选择 **3 自定义基础镜像仓库** 并输入三个完整镜像地址。下面的地址是示例，需替换为已经同步这三个镜像的仓库。[Docker Hub 镜像缓存文档](https://docs.docker.com/docker-hub/image-library/mirror/)
+Docker Hub 连不通时，可以在 Docker daemon 配置自己的可信镜像缓存，或在菜单选择 **3 自定义基础镜像仓库** 并输入 Debian、go-judge 的完整镜像地址。Go 构建镜像可留空，也可以指定已安装 Go 的构建镜像。[Docker Hub 镜像缓存文档](https://docs.docker.com/docker-hub/image-library/mirror/)
 
 ```dotenv
-GO_IMAGE=registry.example.com/library/golang:1.23-bookworm
 DEBIAN_IMAGE=registry.example.com/library/debian:bookworm-slim
 GO_JUDGE_IMAGE=registry.example.com/criyle/go-judge:latest
 ```
 
-如需保存自定义地址以便后续部署，可以在 `deploy/.env` 写入上述三个变量和 `GOPROXY`、`DEBIAN_MIRROR_BASE`。下次运行选择 **2 使用现有配置或官方默认源**。
+如需保存自定义地址以便后续部署，可以将它们和 `GOPROXY`、`GO_TOOLCHAIN_URL`、`DEBIAN_MIRROR_BASE` 写入 `deploy/.env`。下次运行选择 **2 使用现有配置或官方默认源**。
+
+如果旧版部署还停在拉取 `golang:1.23-bookworm`，按 `Ctrl+C` 停止，换用新版脚本重跑。新版脚本发现旧版源码时，会在相邻的 `-updated` 目录获取新版并沿用已有 `deploy/.env` 和 SQLite 数据卷。使用 Git 检出的项目也可先更新源码，再从项目目录运行脚本。
 
 #### 离线部署
 
