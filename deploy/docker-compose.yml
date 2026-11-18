@@ -2,11 +2,14 @@ name: oj
 
 services:
   sandbox:
+    image: oj-sandbox:latest
+    pull_policy: build
     build:
       context: ..
       dockerfile: deploy/Dockerfile.go-judge
       args:
         GO_JUDGE_IMAGE: ${GO_JUDGE_IMAGE:-criyle/go-judge:latest}
+        DEBIAN_MIRROR_BASE: ${DEBIAN_MIRROR_BASE:-}
     restart: unless-stopped
     privileged: true
     shm_size: ${JUDGE_SHM_SIZE:-512m}
@@ -30,11 +33,16 @@ services:
     networks: [judge]
 
   oj:
+    image: oj-oj:latest
+    pull_policy: build
     build:
       context: ..
       dockerfile: deploy/Dockerfile.oj
       args:
         GO_IMAGE: ${GO_IMAGE:-golang:1.23-bookworm}
+        DEBIAN_IMAGE: ${DEBIAN_IMAGE:-debian:bookworm-slim}
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+        DEBIAN_MIRROR_BASE: ${DEBIAN_MIRROR_BASE:-}
     restart: unless-stopped
     init: true
     depends_on:

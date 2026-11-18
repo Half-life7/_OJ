@@ -60,6 +60,48 @@ sudo docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs --t
 sudo docker compose --env-file deploy/.env -f deploy/docker-compose.yml stop
 ```
 
+#### 中国大陆服务器的下载源
+
+Docker 安装包、Docker 基础镜像和构建依赖使用不同的下载源。服务器能访问 Docker Hub 或已配置可用的 Docker Hub 镜像加速时，可以用下面的命令部署。清华镜像提供 Docker CE 和 Debian 软件包，Go 模块由 Goproxy.cn 下载，校验保持开启。[Docker CE 镜像](https://mirrors.tuna.tsinghua.edu.cn/help/docker-ce/) · [Debian 镜像](https://mirrors.tuna.tsinghua.edu.cn/help/debian/) · [Goproxy.cn](https://goproxy.cn/)
+
+```bash
+sudo env \
+  DOCKER_APT_URL=https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian \
+  DEBIAN_MIRROR_BASE=http://mirrors.tuna.tsinghua.edu.cn \
+  GOPROXY=https://goproxy.cn \
+  bash scripts/deploy-debian.sh
+```
+
+`DOCKER_APT_URL` 用于脚本配置的 Docker CE 软件源。宿主机的 Debian 软件源和系统管理员已有的 Docker 源由宿主机管理。`DEBIAN_MIRROR_BASE` 只在构建镜像时替换容器内的 Debian 和 Debian Security 源，APT 仍校验软件包的签名索引。
+
+Docker Hub 连不通时，可以在 Docker daemon 配置自己的可信镜像缓存，或在 `deploy/.env` 指定可访问的镜像仓库。下面的地址是示例，需替换为已经同步这三个镜像的仓库。`GOPROXY` 和 `DEBIAN_MIRROR_BASE` 也可写入该文件以便后续更新。[Docker Hub 镜像缓存文档](https://docs.docker.com/docker-hub/image-library/mirror/)
+
+```dotenv
+GO_IMAGE=registry.example.com/library/golang:1.23-bookworm
+DEBIAN_IMAGE=registry.example.com/library/debian:bookworm-slim
+GO_JUDGE_IMAGE=registry.example.com/criyle/go-judge:latest
+```
+
+首次部署可把上述三个变量加到 `sudo env` 命令，由脚本生成 `deploy/.env` 和随机密钥。已有 `deploy/.env` 时，可以用 `sudoedit deploy/.env` 保存这些设置。
+
+#### 离线部署
+
+在能正常下载依赖、与目标服务器架构相同的机器上，从项目根目录构建并导出成品镜像：
+
+```bash
+docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml build
+docker image save -o ../oj-images.tar oj-oj:latest oj-sandbox:latest
+```
+
+将 `oj-images.tar` 和同版本项目源码传到目标服务器。目标服务器需预装 Docker Engine、Compose、`curl` 和 `openssl`。在目标服务器的项目根目录执行以下命令，镜像归档的路径按实际位置修改：
+
+```bash
+sudo docker image load -i ../oj-images.tar
+sudo bash scripts/deploy-debian.sh --offline
+```
+
+离线模式只启动已导入的成品镜像，仍会生成或复用 `deploy/.env` 并等待健康检查。若目标服务器也访问不了 GitHub，可以在构建机器下载项目源码，再与镜像归档一起传过去。[Docker 镜像导出](https://docs.docker.com/reference/cli/docker/image/save/) · [Docker 镜像导入](https://docs.docker.com/reference/cli/docker/image/load/)
+
 ### Windows + WSL2 推荐路径
 
 1. 安装 Ubuntu 22.04 或更新版本的 WSL2。

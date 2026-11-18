@@ -7,11 +7,13 @@ fail() {
   exit 1
 }
 
+offline=false
 case "${1:-}" in
   -h|--help)
-    printf '用法：sudo bash scripts/deploy-debian.sh\n支持 Debian 12/13，站点设置保存在 deploy/.env。\n'
+    printf '用法：sudo bash scripts/deploy-debian.sh [--offline]\n支持 Debian 12/13，站点设置保存在 deploy/.env。\n--offline 使用预装 Docker 和已导入的成品镜像，仅启动服务。\n'
     exit 0
     ;;
+  --offline) offline=true; shift ;;
 esac
 [[ $# -eq 0 ]] || fail '请使用 --help 查看用法。'
 [[ $EUID -eq 0 ]] || fail '请使用 sudo 运行此脚本。'
@@ -37,27 +39,49 @@ flock -n 9 || fail '已有 OJ 部署正在运行。'
 export DEBIAN_FRONTEND=noninteractive
 docker_cmd=(docker --host unix:///var/run/docker.sock)
 
-if ! command -v docker >/dev/null; then
+if $offline; then
+  for dependency in docker curl openssl; do
+    command -v "$dependency" >/dev/null || fail "离线部署需要预装 $dependency。"
+  done
+elif ! command -v docker >/dev/null; then
   printf '安装 Docker Engine、Buildx 和 Compose。\n'
-  apt-get update
-  apt-get install -y --no-install-recommends ca-certificates curl openssl
-  if ! grep -rqs 'download.docker.com/linux/debian' /etc/apt/sources.list /etc/apt/sources.list.d; then
+  docker_source=/etc/apt/sources.list.d/oj-docker.sources
+  # Reuse existing sources. Only an explicit override replaces an OJ-managed source.
+  if [[ -f $docker_source && -n ${DOCKER_APT_URL:-} ]] ||
+     { [[ ! -f $docker_source ]] &&
+       ! grep -rqsE '/linux/debian/?([[:space:]]|$)' /etc/apt/sources.list /etc/apt/sources.list.d; }; then
+    docker_apt_url=${DOCKER_APT_URL:-https://download.docker.com/linux/debian}
+    docker_apt_url=${docker_apt_url%/}
+    [[ $docker_apt_url =~ ^https://[[:alnum:].:/_-]+$ ]] || fail 'DOCKER_APT_URL 需要是 HTTPS 仓库地址。'
+    if [[ ! -s /etc/ssl/certs/ca-certificates.crt ]] ||
+       ! command -v curl >/dev/null || ! command -v gpg >/dev/null || ! command -v openssl >/dev/null; then
+      apt-get update
+      apt-get install -y --no-install-recommends ca-certificates curl gpg openssl
+    fi
     install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL --retry 3 https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-    chmod 0644 /etc/apt/keyrings/docker.asc
-    cat >/etc/apt/sources.list.d/docker.sources <<EOF
+    key_dir=$(mktemp -d)
+    trap 'rm -r -- "$key_dir"' EXIT
+    curl -fsSL --retry 3 --connect-timeout 10 --max-time 30 "$docker_apt_url/gpg" -o "$key_dir/docker.asc" ||
+      fail 'Docker APT 公钥下载失败。请检查网络或设置 DOCKER_APT_URL。'
+    fingerprint=$(gpg --batch --no-options --homedir "$key_dir" --with-colons --show-keys "$key_dir/docker.asc" |
+      awk -F: '$1 == "pub" { primary = 1 } primary && $1 == "fpr" { print $10; primary = 0 }')
+    [[ $fingerprint == 9DC858229FC7DD38854AE2D88D81803C0EBFCD88 ]] || fail 'Docker APT 公钥指纹校验失败。'
+    install -m 0644 "$key_dir/docker.asc" /etc/apt/keyrings/oj-docker.asc
+    rm -r -- "$key_dir"
+    trap - EXIT
+    cat >"$docker_source" <<EOF
 Types: deb
-URIs: https://download.docker.com/linux/debian
+URIs: $docker_apt_url
 Suites: $VERSION_CODENAME
 Components: stable
 Architectures: $(dpkg --print-architecture)
-Signed-By: /etc/apt/keyrings/docker.asc
+Signed-By: /etc/apt/keyrings/oj-docker.asc
 EOF
-    chmod 0644 /etc/apt/sources.list.d/docker.sources
-    apt-get update
+    chmod 0644 "$docker_source"
   fi
+  apt-get update
   apt-get install -y --no-install-recommends --no-remove \
-    docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    ca-certificates curl openssl docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 else
   packages=()
   command -v curl >/dev/null || packages+=(curl ca-certificates)
@@ -101,9 +125,20 @@ if grep -Eq '^(SANDBOX_TOKEN|ADMIN_PASSWORD)=replace-with-' deploy/.env; then
   fail '请先把 deploy/.env 中的示例 token 和管理员密码换成随机值。'
 fi
 
-printf '构建并启动 OJ 和 go-judge，等待健康检查。\n'
 "${compose[@]}" config --quiet
-if ! "${compose[@]}" up --build --wait --wait-timeout 240; then
+if $offline; then
+  images=$("${compose[@]}" config --images)
+  while IFS= read -r image; do
+    "${docker_cmd[@]}" image inspect "$image" >/dev/null 2>&1 ||
+      fail "缺少镜像 $image，请先将成品镜像通过 docker load 导入。"
+  done <<<"$images"
+  printf '使用本地镜像启动 OJ 和 go-judge，等待健康检查。\n'
+else
+  printf '构建 OJ 和 go-judge 镜像。\n'
+  "${compose[@]}" build || fail '镜像构建失败。若下载超时，请参阅 README 中的镜像源配置或离线部署。'
+  printf '启动 OJ 和 go-judge，等待健康检查。\n'
+fi
+if ! "${compose[@]}" up --no-build --pull never --wait --wait-timeout 240; then
   "${compose[@]}" ps --all >&2 || true
   fail '容器未就绪。请在 deploy 目录中运行 sudo docker compose logs --tail=100。'
 fi

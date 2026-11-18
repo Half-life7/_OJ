@@ -7,6 +7,7 @@ services:
       dockerfile: deploy/Dockerfile.go-judge
       args:
         GO_JUDGE_IMAGE: ${GO_JUDGE_IMAGE:-criyle/go-judge:latest}
+        DEBIAN_MIRROR_BASE: ${DEBIAN_MIRROR_BASE:-}
     privileged: true
     shm_size: ${JUDGE_SHM_SIZE:-512m}
     environment:

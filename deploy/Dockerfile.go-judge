@@ -3,9 +3,10 @@
 ARG GO_JUDGE_IMAGE=criyle/go-judge:latest
 FROM ${GO_JUDGE_IMAGE}
 USER root
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends g++ python3 default-jdk-headless ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/*
+ARG DEBIAN_MIRROR_BASE
+COPY deploy/install-debian-packages.sh /tmp/install-debian-packages.sh
+RUN sh /tmp/install-debian-packages.sh g++ python3 default-jdk-headless ca-certificates curl \
+    && rm /tmp/install-debian-packages.sh
 # Avoid accidentally selecting the upstream /opt/mount.yaml: use built-in mounts.
 WORKDIR /srv/go-judge
 EXPOSE 5050

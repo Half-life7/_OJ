@@ -1,14 +1,18 @@
 ARG GO_IMAGE=golang:1.23-bookworm
+ARG DEBIAN_IMAGE=debian:bookworm-slim
 FROM ${GO_IMAGE} AS build
+ARG GOPROXY=https://proxy.golang.org,direct
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/oj ./cmd/oj
 
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/* \
+FROM ${DEBIAN_IMAGE}
+ARG DEBIAN_MIRROR_BASE
+COPY deploy/install-debian-packages.sh /tmp/install-debian-packages.sh
+RUN sh /tmp/install-debian-packages.sh ca-certificates curl \
+    && rm /tmp/install-debian-packages.sh \
     && groupadd --gid 10001 oj && useradd --uid 10001 --gid oj --no-create-home oj \
     && install -d -o oj -g oj /var/lib/oj
 WORKDIR /app

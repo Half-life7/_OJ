@@ -1,3 +1,4 @@
 **
 !deploy/
 !deploy/Dockerfile.go-judge
+!deploy/install-debian-packages.sh
