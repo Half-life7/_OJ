@@ -337,6 +337,8 @@ docker compose up -d --build
 
 生产环境应固定 go-judge 镜像 digest、只通过内部网络连接沙箱、在 HTTPS 反向代理后设置 `COOKIE_SECURE=true` 和 `TRUSTED_PROXY`。Compose 没有暴露沙箱端口；`privileged: true` 是 go-judge 使用 namespace、mount 和 cgroup 的条件，也意味着沙箱容器本身需要严格主机隔离。
 
+Java 的可用性探测会在沙箱内编译、打包并运行一个小程序。Compose 的沙箱镜像会将 OpenJDK 软件包的配置放到 go-judge 已挂载的 JDK 目录内；从旧版更新 Java 时需要重新构建 OJ 和沙箱镜像。
+
 systemd：
 
 ```bash

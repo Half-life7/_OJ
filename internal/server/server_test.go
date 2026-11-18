@@ -706,6 +706,36 @@ func TestAPIRequestBodyAndExecutionLimits(t *testing.T) {
 	}
 }
 
+func TestAPISelfTestComparesOnlyPublicSamples(t *testing.T) {
+	h := newAPIHarness(t)
+	p := apiProblem()
+	hiddenInput := p.Testcases[1].Input
+	p.Testcases = append(p.Testcases, model.Testcase{Input: "20 21\n", Expected: "41\n", IsSample: true})
+	p = h.createProblem(t, h.admin(t), p)
+	for i, test := range []struct {
+		name, input string
+		want        *selfTestSample
+	}{
+		{"matching sample", "20 22\r\n", &selfTestSample{Index: 1, Expected: "42\n", Matches: true}},
+		{"wrong output", "20 21\n", &selfTestSample{Index: 2, Expected: "41\n"}},
+		{"same input as hidden case", hiddenInput, nil},
+		{"custom input", "6 7\n", nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			user := h.user(t, fmt.Sprintf("sample_user_%d", i))
+			res := h.request(t, user, "POST", "/api/run", map[string]any{
+				"language": "python3", "code": "print(42)", "input": test.input, "problem_id": p.ID,
+			})
+			requireAPIStatus(t, res, 200)
+			result := decodeAPI[selfTestResponse](t, res)
+			if result.Status != "accepted" || (test.want == nil && result.Sample != nil) ||
+				(test.want != nil && (result.Sample == nil || *result.Sample != *test.want)) {
+				t.Fatalf("unexpected self-test result: %s", res.body)
+			}
+		})
+	}
+}
+
 func TestAPIStaticAssetsAndDeepLinkFallback(t *testing.T) {
 	h := newAPIHarness(t)
 	client := h.client(t)

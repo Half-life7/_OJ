@@ -1,5 +1,5 @@
 import { el, storage } from './ui.js';
-import { snippets } from './editor-snippets.js';
+import { dictionaries } from './editor-dictionary.js';
 
 const words = new Set(('alignas auto bool break case catch char class const constexpr continue default def del do double else elif enum except extends false False final finally float for from if import in include inline int interface is lambda long namespace new None not null or override pass private protected public raise return short signed sizeof static string struct super switch template this throw throws true True try typedef typename unsigned using var virtual void volatile while with yield and as assert async await boolean byte package print range len self System String').split(' '));
 const tokenPattern = /(\/\*[\s\S]*?(?:\*\/|$)|\/\/[^\n]*|\#[^\n]*|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|\b[A-Za-z_]\w*\b)/g;
@@ -78,9 +78,6 @@ export function createEditor(container, options = {}) {
       completionList.scrollTop = active.offsetTop + active.offsetHeight - completionList.clientHeight;
     }
   }
-  function languageSnippets() {
-    return Object.hasOwn(snippets, language) ? snippets[language] : [];
-  }
   function positionCompletions() {
     if (!completion) return;
     const style = getComputedStyle(input);
@@ -99,13 +96,21 @@ export function createEditor(container, options = {}) {
     const line = input.value.slice(input.value.lastIndexOf('\n', start - 1) + 1, start);
     const prefix = start === end ? line.match(/\b[A-Za-z_]\w*$/)?.[0] || '' : '';
     if (!manual && !prefix) return closeCompletions();
-    const candidates = languageSnippets();
-    const matches = candidates.filter(([name]) => name.toLowerCase().startsWith(prefix.toLowerCase()));
-    const items = matches.length ? matches : manual ? candidates : [];
+    const suffix = prefix ? input.value.slice(end).match(/^\w*/)[0] : '';
+    const wordStart = start - prefix.length;
+    const candidates = new Map();
+    for (const match of input.value.slice(0, 180000).matchAll(tokenPattern)) {
+      const text = match[0];
+      const inToken = start > match.index && start <= match.index + text.length;
+      if (!manual && inToken && /^(\/\/|\/\*|["']|#)/.test(text)) return closeCompletions();
+      if (match.index !== wordStart && /^[A-Za-z_]\w*$/.test(text)) candidates.set(text, '当前代码');
+    }
+    const dictionary = Object.hasOwn(dictionaries, language) ? dictionaries[language] : [];
+    for (const word of dictionary) candidates.set(word, '语言字典');
+    const matches = [...candidates].filter(([word]) => word.toLowerCase().startsWith(prefix.toLowerCase()) && word !== prefix + suffix);
+    const items = (matches.length ? matches : manual ? [...candidates] : []).slice(0, manual ? 30 : 10);
     if (!items.length) return closeCompletions();
-    const replaceLength = matches.length ? prefix.length : 0;
-    const suffix = replaceLength ? input.value.slice(end).match(/^\w*/)[0].length : 0;
-    completion = { start: start - replaceLength, end: end + suffix, indent: line.match(/^[ \t]*/)[0], items };
+    completion = { start: matches.length ? wordStart : start, end: matches.length ? end + suffix.length : end, items };
     completionList.replaceChildren(...items.map(([name, description], index) => el('button', {
       type: 'button', id: `${completionList.id}-${index}`, role: 'option', tabIndex: -1,
       onpointerdown: event => event.preventDefault(), onclick: () => applyCompletion(index),
@@ -117,11 +122,9 @@ export function createEditor(container, options = {}) {
   }
   function applyCompletion(index) {
     if (!completion) return;
-    const { items, start, end, indent } = completion;
-    const text = items[index][2].replaceAll('\n', `\n${indent}`);
-    const cursor = text.indexOf('$0');
+    const { items, start, end } = completion;
     input.focus();
-    insert(text.replace('$0', ''), start, end, cursor < 0 ? start + text.length : start + cursor);
+    insert(items[index][0], start, end);
     closeCompletions();
   }
   function keydown(event) {
@@ -183,7 +186,6 @@ export function createEditor(container, options = {}) {
     setLanguage(value) { closeCompletions(); language = value || ''; render(); },
     setFontSize(value) { const size = Math.min(24, Math.max(11, Number(value) || 14)); root.style.setProperty('--code-font-size', `${size}px`); storage.set('oj.fontSize',size); syncScroll(); },
     setReadOnly(value) { input.readOnly = !!value; closeCompletions(); render(); },
-    hasCompletions: () => Boolean(languageSnippets().length),
     showCompletions() { input.focus(); showCompletions(true); },
     focus() { input.focus(); },
     onChange(listener) { listeners.add(listener); return () => listeners.delete(listener); },

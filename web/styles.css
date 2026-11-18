@@ -196,10 +196,7 @@ pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .sidebar-callout strong { display: block; font-size: .9rem; }
 .sidebar-callout p { margin: 5px 0 10px; color: var(--muted); font-size: .78rem; }
 .sidebar-collapsed .sidebar { width: var(--sidebar-collapsed); padding-inline: 8px; }
-.sidebar-collapsed .sidebar .nav-label {
-  width: 40px; height: 28px; overflow: hidden; padding: 0; margin: 0 auto 9px;
-  color: transparent; border-radius: 8px; background: var(--bg-subtle);
-}
+.sidebar-collapsed .sidebar .nav-label { display: none; }
 .sidebar-collapsed .side-link { justify-content: center; padding: 0; }
 .sidebar-collapsed .side-link span,
 .sidebar-collapsed .sidebar-bottom > span,
@@ -757,7 +754,7 @@ dialog.dialog::backdrop { background: rgb(6 14 10 / 46%); backdrop-filter: blur(
   .sidebar { width: var(--sidebar); transform: translateX(-102%); box-shadow: var(--shadow-md); }
   .sidebar.open { transform: translateX(0); }
   .sidebar-collapsed .sidebar { width: var(--sidebar); padding-inline: 12px; }
-  .sidebar-collapsed .sidebar .nav-label { width: auto; height: auto; overflow: visible; margin: 0; padding: 0 13px 15px; color: var(--text); background: transparent; }
+  .sidebar-collapsed .sidebar .nav-label { display: block; }
   .sidebar-collapsed .sidebar .side-link { justify-content: flex-start; padding: 0 12px; }
   .sidebar-collapsed .sidebar .side-link span, .sidebar-collapsed .sidebar-bottom > span { display: initial; }
   .sidebar-collapsed .sidebar-bottom { justify-content: flex-start; }

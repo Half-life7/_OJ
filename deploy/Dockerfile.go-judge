@@ -4,9 +4,10 @@ ARG GO_JUDGE_IMAGE=criyle/go-judge:latest
 FROM ${GO_JUDGE_IMAGE}
 USER root
 ARG DEBIAN_MIRROR_BASE
-COPY deploy/install-debian-packages.sh /tmp/install-debian-packages.sh
+COPY deploy/install-debian-packages.sh deploy/prepare-java-sandbox.sh /tmp/
 RUN sh /tmp/install-debian-packages.sh g++ python3 default-jdk-headless ca-certificates curl \
-    && rm /tmp/install-debian-packages.sh
+    && sh /tmp/prepare-java-sandbox.sh \
+    && rm /tmp/install-debian-packages.sh /tmp/prepare-java-sandbox.sh
 # Avoid accidentally selecting the upstream /opt/mount.yaml: use built-in mounts.
 WORKDIR /srv/go-judge
 EXPOSE 5050

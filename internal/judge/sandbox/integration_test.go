@@ -53,13 +53,14 @@ print(x[0])`,
 sys.stdout.write("x"*(2*1024*1024))`,
 	},
 	"java": {
-		source: `public class Main{public static void main(String[]a){System.out.println(42);}}`,
-		want:   `public class Main{public static void main(String[]a){System.out.println(41);}}`,
-		tle:    `public class Main{public static void main(String[]a){long x=1;for(;;)x=x*3+1;}}`,
-		sleep:  `public class Main{public static void main(String[]a)throws Exception{Thread.sleep(5000);}}`,
-		re:     `public class Main{public static void main(String[]a){throw new RuntimeException();}}`,
-		mle:    `public class Main{public static void main(String[]a){byte[] x=new byte[512*1024*1024];System.out.println(x[0]);}}`,
-		ole:    `public class Main{public static void main(String[]a){System.out.println("x".repeat(2*1024*1024));}}`,
+		source: `public class Main{public static void main(String[]a){System.out.println(Helper.answer());}}
+class Helper{static int answer(){return 42;}}`,
+		want:  `public class Main{public static void main(String[]a){System.out.println(41);}}`,
+		tle:   `public class Main{public static void main(String[]a){long x=1;for(;;)x=x*3+1;}}`,
+		sleep: `public class Main{public static void main(String[]a)throws Exception{Thread.sleep(5000);}}`,
+		re:    `public class Main{public static void main(String[]a){throw new RuntimeException();}}`,
+		mle:   `public class Main{public static void main(String[]a){byte[] x=new byte[512*1024*1024];System.out.println(x[0]);}}`,
+		ole:   `public class Main{public static void main(String[]a){System.out.println("x".repeat(2*1024*1024));}}`,
 	},
 }
 
@@ -80,7 +81,7 @@ func TestSandboxIntegrationVerdicts(t *testing.T) {
 			t.Fatalf("missing %s language", id)
 		}
 		if err := client.Probe(ctx, language); err != nil {
-			t.Logf("%s unavailable: %v", id, err)
+			t.Errorf("%s toolchain probe failed: %v", id, err)
 			continue
 		}
 		t.Run(id, func(t *testing.T) {

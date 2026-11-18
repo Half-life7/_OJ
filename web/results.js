@@ -8,13 +8,25 @@ export function codeView(code, language = '') {
 
 export function resultView(result, { selfTest = false } = {}) {
   const status = result.status || 'pending';
-  const summary = el('div',{class:`result-summary ${status === 'accepted' ? 'is-success' : pending(status) ? 'is-pending' : 'is-error'}`},
-    el('div',{class:'row'}, pending(status) ? el('span',{class:'spinner'}) : icon(status === 'accepted' ? 'check' : 'alert',24),
-      el('div',{},el('strong',{}, selfTest && status === 'accepted' ? '运行完成' : verdict(status)),el('p',{class:'muted'}, selfTest ? '自测仅运行程序，请自行核对预期输出。' : pending(status) ? '评测结果将自动更新，请稍候。' : `通过 ${result.passed || 0} / ${result.total || 0} 个测试点`))),
+  const completed = status === 'accepted';
+  const sample = selfTest && completed ? result.sample : null;
+  const sampleMismatch = sample && !sample.matches;
+  const tone = pending(status) ? 'is-pending' : !completed || sampleMismatch ? 'is-error' : selfTest ? '' : 'is-success';
+  const glyph = !completed || sampleMismatch ? 'alert' : selfTest ? 'terminal' : 'check';
+  const title = selfTest && completed
+    ? sample ? `样例 ${sample.index} ${sample.matches ? '通过' : '输出不匹配'}` : '运行完成'
+    : verdict(status);
+  const note = selfTest && completed
+    ? sample ? '这里只核对了当前样例。其他测试点以正式提交的评测结果为准。' : '这是自定义输入。请自行核对程序输出，正式评测以提交结果为准。'
+    : selfTest ? '可查看下方的输出或错误信息。' : pending(status) ? '评测结果将自动更新，请稍候。' : `通过 ${result.passed || 0} / ${result.total || 0} 个测试点`;
+  const summary = el('div',{class:`result-summary ${tone}`},
+    el('div',{class:'row'}, pending(status) ? el('span',{class:'spinner'}) : icon(glyph,24),
+      el('div',{},el('strong',{}, title),el('p',{class:'muted'}, note))),
     !pending(status) && el('div',{class:'result-metrics'},el('span',{},icon('clock',15),formatTime(result)),el('span',{},icon('chip',15),formatMemory(result.memory_kb))));
   const root = el('div',{class:'result-view'},summary);
   if (selfTest) {
     root.append(outputBlock('标准输出', result.stdout ?? '', true));
+    if (sample) root.append(outputBlock('样例预期输出', sample.expected));
     if (result.stderr) root.append(outputBlock('标准错误 / 编译信息',result.stderr));
     if (result.truncated) root.append(el('p',{class:'notice warning'},'输出过长，已截断显示。'));
     if (result.exit_code != null && result.exit_code !== 0) root.append(badge(`退出码 ${result.exit_code}`,'warning'));

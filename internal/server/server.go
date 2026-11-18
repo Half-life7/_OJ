@@ -21,6 +21,7 @@ import (
 	"oj/internal/auth"
 	"oj/internal/config"
 	"oj/internal/judge"
+	"oj/internal/judge/sandbox"
 	"oj/internal/model"
 	"oj/internal/store"
 	"oj/web"
@@ -469,7 +470,36 @@ func (h *Server) run(w http.ResponseWriter, r *http.Request) {
 		judgeError(w, e)
 		return
 	}
-	write(w, 200, res)
+	response := selfTestResponse{RunResult: res}
+	if p != nil && res.Status == "accepted" && !res.Truncated {
+		response.Sample = comparePublicSample(p, in.Input, res.Stdout)
+	}
+	write(w, 200, response)
+}
+
+type selfTestResponse struct {
+	sandbox.RunResult
+	Sample *selfTestSample `json:"sample,omitempty"`
+}
+
+type selfTestSample struct {
+	Index    int    `json:"index"`
+	Expected string `json:"expected"`
+	Matches  bool   `json:"matches"`
+}
+
+func comparePublicSample(p *model.Problem, input, output string) *selfTestSample {
+	index := 0
+	for _, test := range p.Testcases {
+		if !test.IsSample {
+			continue
+		}
+		index++
+		if judge.CheckOutput("exact", test.Input, input, 0) {
+			return &selfTestSample{Index: index, Expected: test.Expected, Matches: judge.CheckOutput(p.Checker, test.Expected, output, p.FloatEps)}
+		}
+	}
+	return nil
 }
 func judgeError(w http.ResponseWriter, e error) {
 	switch {

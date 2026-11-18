@@ -46,9 +46,17 @@ languages:
     display: Java
     source: Main.java
     artifact: main.jar
-    compile: [/bin/sh, -c, 'mkdir -p classes && /usr/bin/javac -J-XX:ActiveProcessorCount=1 -J-XX:+UseSerialGC -J-XX:-UsePerfData -encoding UTF-8 -d classes Main.java && /usr/bin/jar cf main.jar -C classes .']
+    compile: [/bin/sh, -c, 'mkdir -p classes && /usr/bin/javac -J-XX:ActiveProcessorCount=1 -J-XX:+UseSerialGC -J-XX:-UsePerfData -encoding UTF-8 -d classes Main.java && /usr/bin/jar -J-XX:ActiveProcessorCount=1 -J-XX:+UseSerialGC -J-XX:-UsePerfData cf main.jar -C classes .']
     run: [/usr/bin/java, '-XX:+UseSerialGC', '-XX:ActiveProcessorCount=1', '-XX:-UsePerfData', '-Xshare:auto', '-Dfile.encoding=UTF-8', '-Xss64m', '-Xmx{memory_mb}m', -cp, main.jar, Main]
-    probe: [/bin/sh, -c, '/usr/bin/java -version && /usr/bin/javac -version && /usr/bin/jar --version']
+    probe:
+      - /bin/sh
+      - -c
+      - |
+        printf '%s\n' 'public class Main { public static void main(String[] args) {} }' > Main.java &&
+        mkdir -p classes &&
+        /usr/bin/javac -J-XX:ActiveProcessorCount=1 -J-XX:+UseSerialGC -J-XX:-UsePerfData -d classes Main.java &&
+        /usr/bin/jar -J-XX:ActiveProcessorCount=1 -J-XX:+UseSerialGC -J-XX:-UsePerfData cf main.jar -C classes . &&
+        /usr/bin/java -XX:ActiveProcessorCount=1 -XX:+UseSerialGC -XX:-UsePerfData -Xmx64m -cp main.jar Main
     time_factor: 2
     memory_factor: 1
     time_extra_ms: 0

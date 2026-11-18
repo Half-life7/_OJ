@@ -19,11 +19,13 @@ function limitText(problem, language) {
   return `${limit.time_limit_ms} ms · ${limit.memory_limit_mb} MB`;
 }
 
-function sampleBlock(sample, index) {
+function sampleBlock(sample, index, useSample) {
   return el('article', { class: 'sample-card' },
     el('div', { class: 'sample-heading' },
       el('div', { class: 'row' }, badge(`样例 ${index + 1}`, 'accent'), sample.is_sample === false && badge('测试数据', 'muted')),
-      button('复制', () => copyText(`输入：\n${sample.input}\n输出：\n${sample.expected}`), { variant: 'text small', icon: 'copy' })),
+      el('div', { class: 'row' },
+        button('用作自测', () => useSample(sample.input), { variant: 'text small' }),
+        button('复制', () => copyText(`输入：\n${sample.input}\n输出：\n${sample.expected}`), { variant: 'text small', icon: 'copy' }))),
     el('div', { class: 'sample-grid' },
       el('div', {}, el('span', { class: 'sample-label' }, '输入'), el('pre', { class: 'sample-code' }, sample.input || '（空）')),
       el('div', {}, el('span', { class: 'sample-label' }, '输出'), el('pre', { class: 'sample-code' }, sample.expected || '（空）'))),
@@ -102,7 +104,7 @@ export async function renderWorkspace(host, ctx, id) {
     el('section', { class: 'statement-section' }, el('h2', {}, '输入格式'), markdown(problem.input_format || '未提供。')),
     el('section', { class: 'statement-section' }, el('h2', {}, '输出格式'), markdown(problem.output_format || '未提供。')),
     el('section', { class: 'statement-section' }, el('h2', {}, '样例'),
-      ...(problem.testcases || []).filter(test => test.is_sample).map(sampleBlock)),
+      ...(problem.testcases || []).filter(test => test.is_sample).map((sample, index) => sampleBlock(sample, index, useSample))),
     problem.hint && el('details', { class: 'hint-disclosure' }, el('summary', {}, icon('info', 16), '查看提示'), markdown(problem.hint)));
   descriptionPanel.append(paneScroller);
 
@@ -110,11 +112,11 @@ export async function renderWorkspace(host, ctx, id) {
   const codeWorkspace = el('div', { class: 'code-workspace' });
   const editorTop = el('div', { class: 'editor-toolbar' });
   const languageSelect = select([], '', changeLanguage, { id: 'workspace-language', 'aria-label': '选择编程语言' });
-  const snippetButton = button('代码片段', () => editor.showCompletions(), { variant: 'text small', title: 'Ctrl/⌘ + 空格打开补全，Tab 插入' });
+  const completionButton = button('补全', () => editor.showCompletions(), { variant: 'text small', title: 'Ctrl/⌘ + 空格打开补全，Tab 插入' });
   const resetButton = button('模板', resetTemplate, { variant: 'text small', icon: 'refresh' });
   const fontDown = iconButton('chevron', '减小字号', () => adjustFont(-1), { class: 'compact-icon' });
   const fontUp = iconButton('plus', '增大字号', () => adjustFont(1), { class: 'compact-icon' });
-  editorTop.append(el('div', { class: 'row' }, el('label', { htmlFor: languageSelect.id }, '语言'), languageSelect), el('div', { class: 'row' }, snippetButton, fontDown, fontUp, resetButton));
+  editorTop.append(el('div', { class: 'row' }, el('label', { htmlFor: languageSelect.id }, '语言'), languageSelect), el('div', { class: 'row' }, completionButton, fontDown, fontUp, resetButton));
   const availabilityText = el('span');
   const retryAvailability = button('重新检测', refreshAvailability, { variant: 'text small' });
   const availabilityNotice = el('div', { class: 'workspace-language-warning', role: 'status', hidden: true }, availabilityText, retryAvailability);
@@ -216,7 +218,7 @@ export async function renderWorkspace(host, ctx, id) {
     const ready = language && language.available !== false;
     languageSelect.disabled = executionBusy || !languages.length;
     resetButton.disabled = executionBusy || !language;
-    snippetButton.disabled = !editor.hasCompletions();
+    completionButton.disabled = !language;
     runButton.disabled = submitButton.disabled = executionBusy || !ready;
     availabilityNotice.hidden = Boolean(ready);
     availabilityText.textContent = language ? '当前语言暂无法判题，草稿可继续编辑。' : '暂时无法获取语言列表。';
@@ -287,6 +289,12 @@ export async function renderWorkspace(host, ctx, id) {
     setConsoleCollapsed(false);
   }
 
+  function useSample(input) {
+    inputArea.value = input;
+    showMobilePane('code');
+    showConsoleTab('input');
+  }
+
   function toggleConsole() {
     setConsoleCollapsed(!consolePanel.classList.contains('collapsed'));
   }
@@ -332,7 +340,7 @@ export async function renderWorkspace(host, ctx, id) {
         body: { language: language.id, code: currentDraft, input: inputArea.value, problem_id: problem.id },
       });
       if (!ctx.alive()) return;
-      submissionHost.replaceChildren(resultView({ ...result, total: 1, passed: result.status === 'accepted' ? 1 : 0 }, { selfTest: true }));
+      submissionHost.replaceChildren(resultView(result, { selfTest: true }));
     } catch (error) {
       if (error.name !== 'AbortError') submissionHost.replaceChildren(errorState(error, runCode));
     } finally {

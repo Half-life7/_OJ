@@ -36,16 +36,34 @@ const fs = require('node:fs');
           await editor.pressSequentially('ci');
           await page.getByRole('option', { name: /cin/ }).waitFor();
           await editor.press('Tab');
-          assert.equal(await editor.inputValue(), 'cin >> ;');
+          assert.equal(await editor.inputValue(), 'cin');
           await languages.selectOption('python3');
-          await editor.fill('print(42)');
+          await editor.fill('number_of_items = 42\n');
+          await editor.pressSequentially('nu');
+          await page.getByRole('option', { name: /number_of_items/ }).waitFor();
+          await editor.press('Tab');
+          assert.equal(await editor.inputValue(), 'number_of_items = 42\nnumber_of_items');
           await languages.selectOption('cpp17');
-          assert.equal(await editor.inputValue(), 'cin >> ;');
+          assert.equal(await editor.inputValue(), 'cin');
           await languages.selectOption('java');
           await editor.fill('');
-          await page.getByRole('button', { name: '代码片段', exact: true }).click();
-          await page.getByRole('option', { name: /sout/ }).click();
-          assert.equal(await editor.inputValue(), 'System.out.println();');
+          await editor.pressSequentially('Sc');
+          await page.getByRole('button', { name: '补全', exact: true }).click();
+          await page.getByRole('option', { name: /Scanner/ }).click();
+          assert.equal(await editor.inputValue(), 'Scanner');
+          if (viewport.width >= 1024) assert.ok(await page.locator('.sidebar .nav-label').isHidden(), 'collapsed sidebar shows an empty section label');
+          const selfTests = await page.evaluate(async () => {
+            const { resultView } = await import('/results.js');
+            return [null, { index: 1, expected: '42', matches: true }, { index: 2, expected: '43', matches: false }].map(sample => {
+              const result = resultView({ status: 'accepted', stdout: '42', sample }, { selfTest: true });
+              return { text: result.textContent, green: !!result.querySelector('.is-success'), mismatch: !!result.querySelector('.is-error') };
+            });
+          });
+          assert.match(selfTests[0].text, /运行完成.*自定义输入/);
+          assert.match(selfTests[1].text, /样例 1 通过.*其他测试点以正式提交/);
+          assert.match(selfTests[2].text, /样例 2 输出不匹配.*样例预期输出/);
+          assert.ok(selfTests.every(result => !result.green), 'a self-test should never display the full pass color');
+          assert.ok(selfTests[2].mismatch, 'sample output mismatch needs a clear error state');
           const notice = page.locator('.workspace-language-warning');
           if (await notice.isVisible()) {
             const run = page.getByRole('button', { name: '运行', exact: true });
@@ -59,7 +77,7 @@ const fs = require('node:fs');
             await page.getByRole('button', { name: '重新检测', exact: true }).click();
             await notice.waitFor({ state: 'hidden' });
             assert.ok(await run.isEnabled(), 'a recovered language should run');
-            assert.equal(await editor.inputValue(), 'System.out.println();', 'refresh should keep the current draft');
+            assert.equal(await editor.inputValue(), 'Scanner', 'refresh should keep the current draft');
           }
         }
         if(route.includes('difficulty=easy')){
