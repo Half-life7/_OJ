@@ -13,7 +13,7 @@ function templateFor(problem, language) {
 }
 
 function limitText(problem, language) {
-  if (!language) return '判题服务恢复后显示资源限制';
+  if (!language) return '资源限制暂不可用';
   const limit = problem.effective_limits?.[language.id];
   if (!limit) return '资源限制暂不可用';
   return `${limit.time_limit_ms} ms · ${limit.memory_limit_mb} MB`;
@@ -57,20 +57,23 @@ function historySection(historyHost, ctx, problem, onRestore) {
 export async function renderWorkspace(host, ctx, id) {
   ctx.setTitle('题目工作台');
   host.replaceChildren(loading(8));
-  const [problem] = await Promise.all([api(`/api/problems/${id}`, { signal: ctx.signal })]);
+  const fetchLanguages = () => api('/api/languages?include_unavailable=1', { signal: ctx.signal, timeout: 10000 });
+  const [problem, initialLanguages] = await Promise.all([
+    api(`/api/problems/${id}`, { signal: ctx.signal }),
+    fetchLanguages().catch(() => null),
+  ]);
   if (!ctx.alive()) return;
   ctx.setTitle(problem.title);
-  document.documentElement.classList.add('workspace-active');
-  ctx.cleanup(() => document.documentElement.classList.remove('workspace-active'));
-
-  const rememberedLanguage = ctx.user ? storage.get(`oj.lastLanguage.${ctx.user.id}.${problem.id}`, '') : '';
-  let language = ctx.languages.find(item => item.id === rememberedLanguage) ||
-    ctx.languages.find(item => item.id === Object.keys(problem.templates || {})[0]) ||
-    ctx.languages[0] || null;
-  let activeMobilePane = 'description';
+  const userKey = ctx.user?.id ?? 'guest';
+  const languageKey = `oj.lastLanguage.${userKey}.${problem.id}`;
+  const rememberedLanguage = storage.get(languageKey);
+  let languages = initialLanguages?.languages ?? ctx.languages;
+  let language = languages.find(item => item.id === rememberedLanguage) ||
+    languages.find(item => item.available !== false && problem.templates?.[item.id]) ||
+    languages.find(item => item.available !== false) || languages[0] || null;
   let currentDraft = '';
-  let pollTimer = 0;
-  let submissionHost = el('div');
+  let executionBusy = false;
+  const submissionHost = el('div');
 
   const mobileTabs = el('div', { class: 'workspace-mobile-tabs', role: 'tablist', 'aria-label': '工作台视图' });
   const descriptionTab = button('题目', () => showMobilePane('description'), { variant: 'mobile-tab active', 'aria-selected': 'true' });
@@ -106,44 +109,43 @@ export async function renderWorkspace(host, ctx, id) {
   const rightPane = el('section', { class: 'workspace-pane editor-pane', 'aria-label': '代码编辑与运行' });
   const codeWorkspace = el('div', { class: 'code-workspace' });
   const editorTop = el('div', { class: 'editor-toolbar' });
-  const languageSelect = select((ctx.languages || []).map(item => ({ value: item.id, label: item.display })), language?.id || '', changeLanguage, { 'aria-label': '选择编程语言' });
+  const languageSelect = select([], '', changeLanguage, { id: 'workspace-language', 'aria-label': '选择编程语言' });
+  const snippetButton = button('代码片段', () => editor.showCompletions(), { variant: 'text small', title: 'Ctrl/⌘ + 空格打开补全，Tab 插入' });
   const resetButton = button('模板', resetTemplate, { variant: 'text small', icon: 'refresh' });
   const fontDown = iconButton('chevron', '减小字号', () => adjustFont(-1), { class: 'compact-icon' });
   const fontUp = iconButton('plus', '增大字号', () => adjustFont(1), { class: 'compact-icon' });
-  const languageHint = el('span', { class: 'muted small-text' }, language ? limitText(problem, language) : '暂无可用语言');
-  editorTop.append(el('div', { class: 'row' }, icon('code', 17), languageSelect, languageHint), el('div', { class: 'row' }, fontDown, fontUp, resetButton));
+  editorTop.append(el('div', { class: 'row' }, el('label', { htmlFor: languageSelect.id }, '语言'), languageSelect), el('div', { class: 'row' }, snippetButton, fontDown, fontUp, resetButton));
+  const availabilityText = el('span');
+  const retryAvailability = button('重新检测', refreshAvailability, { variant: 'text small' });
+  const availabilityNotice = el('div', { class: 'workspace-language-warning', role: 'status', hidden: true }, availabilityText, retryAvailability);
 
   const editorMount = el('div', { class: 'editor-mount' });
   const editor = createEditor(editorMount, {
-    language: language?.highlight || '',
+    language: language?.highlight || language?.id || '',
     value: '',
     onChange(value) {
       currentDraft = value;
-      if (ctx.user && language) persistDraft(draftKey(problem.id, ctx.user.id, language.id), value);
-      charCount.textContent = `${new TextEncoder().encode(value).length.toLocaleString('zh-CN')} 字节`;
+      if (language) persistDraft(draftKey(language.id), value);
     },
   });
   const persistDraft = debounce((key, value) => storage.set(key, value), 500);
   ctx.cleanup(() => {
-    persistDraft.cancel();
-    if (ctx.user && language) storage.set(draftKey(problem.id, ctx.user.id, language.id), currentDraft);
-    clearTimeout(pollTimer);
+    saveDraft();
     editor.destroy();
   });
 
-  const charCount = el('span', { class: 'muted mono small-text' }, '0 字节');
-  const editorFoot = el('div', { class: 'editor-substatus' }, el('span', {}, 'Ctrl/⌘ + Enter 运行 · Ctrl/⌘ + Shift + Enter 提交'), charCount);
-  const consolePanel = el('section', { class: 'console-panel', 'aria-label': '自测控制台' });
+  const consolePanel = el('section', { class: 'console-panel collapsed', 'aria-label': '自测控制台' });
   const inputArea = el('textarea', {
-    class: 'console-input', spellcheck: false, placeholder: '在这里输入自定义测试数据…',
+    class: 'console-input', placeholder: '在这里输入自定义测试数据…',
     value: problem.testcases?.find(test => test.is_sample)?.input || '',
     'aria-label': '自测输入',
   });
+  inputArea.spellcheck = false;
   const runOutput = submissionHost;
   const inputTab = button('自测输入', () => showConsoleTab('input'), { variant: 'workspace-tab active', 'aria-selected': 'true' });
   const outputTab = button('运行结果', () => showConsoleTab('output'), { variant: 'workspace-tab', 'aria-selected': 'false' });
-  const consoleToggle = iconButton('down', '收起或展开控制台', toggleConsole, { class: 'compact-icon' });
-  const consoleBody = el('div', { class: 'console-body' },
+  const consoleToggle = iconButton('chevron', '收起或展开控制台', toggleConsole, { class: 'compact-icon', 'aria-controls': 'workspace-console-body', 'aria-expanded': 'false' });
+  const consoleBody = el('div', { class: 'console-body', id: 'workspace-console-body' },
     el('div', { class: 'console-input-pane' }, inputArea),
     el('div', { class: 'console-output-pane', hidden: true }, runOutput));
   const consoleResize = el('div', { class: 'console-resize', role: 'separator', 'aria-label': '调整控制台高度', tabIndex: 0 });
@@ -152,7 +154,7 @@ export async function renderWorkspace(host, ctx, id) {
       el('div', { class: 'workspace-tabbar inline' }, inputTab, outputTab),
       el('div', { class: 'row' }, el('span', { class: 'console-caption' }, icon('terminal', 15), '测试控制台'), consoleToggle)),
     consoleResize, consoleBody);
-  codeWorkspace.append(editorTop, editorMount, editorFoot, consolePanel);
+  codeWorkspace.append(editorTop, availabilityNotice, editorMount, consolePanel);
   rightPane.append(codeWorkspace);
 
   const divider = el('div', {
@@ -161,53 +163,86 @@ export async function renderWorkspace(host, ctx, id) {
   });
   split.append(leftPane, divider, rightPane);
 
-  const runButton = button('运行', runCode, { variant: 'btn run-btn', icon: 'play' });
-  const submitButton = button('提交', submitCode, { variant: 'btn primary submit-btn', icon: 'send' });
+  const runButton = button('运行', runCode, { variant: 'run-btn', icon: 'play', title: 'Ctrl/⌘ + Enter' });
+  const submitButton = button('提交', submitCode, { variant: 'primary submit-btn', icon: 'send', title: 'Ctrl/⌘ + Shift + Enter' });
   const actionBar = el('div', { class: 'workspace-actions' },
-    el('div', { class: 'workspace-action-note' }, icon('shield', 16), el('span', {}, '代码仅在 go-judge 隔离环境中执行')),
     el('div', { class: 'row' }, runButton, submitButton));
 
-  if (!ctx.languages.length) {
-    codeWorkspace.prepend(el('div', { class: 'notice warning workspace-language-warning' },
-      icon('alert', 18), el('span', {}, ctx.languageError || '判题服务暂不可用。你仍可阅读题目和编写代码，服务恢复后即可运行。')));
-    languageSelect.disabled = true;
-    runButton.disabled = true;
-    submitButton.disabled = true;
-  }
-
   host.replaceChildren(mobileTabs, split, actionBar);
+  updateLanguageOptions();
   configureInitialCode();
+  updateLanguageControls();
   setupSplitDrag();
   setupConsoleDrag();
   loadHistory();
 
-  function draftKey(problemID, userID, languageID) {
-    return `oj.draft.${userID}.${problemID}.${languageID}`;
+  function draftKey(languageID) {
+    return `oj.draft.${userKey}.${problem.id}.${languageID}`;
+  }
+
+  function saveDraft() {
+    persistDraft.cancel();
+    if (language) storage.set(draftKey(language.id), currentDraft);
   }
 
   function configureInitialCode() {
-    if (!language) {
-      editor.setValue('', { silent: true });
-      return;
-    }
-    const saved = ctx.user ? storage.get(draftKey(problem.id, ctx.user.id, language.id), '') : '';
-    const value = saved || templateFor(problem, language);
+    const value = language ? storage.get(draftKey(language.id), null) ?? templateFor(problem, language) : '';
     editor.setValue(value, { silent: true });
     currentDraft = value;
-    charCount.textContent = `${new TextEncoder().encode(value).length.toLocaleString('zh-CN')} 字节`;
   }
 
   function changeLanguage() {
-    const next = ctx.languages.find(item => item.id === languageSelect.value);
-    if (!next) return;
-    persistDraft.cancel();
-    if (ctx.user && language) storage.set(draftKey(problem.id, ctx.user.id, language.id), currentDraft);
+    const next = languages.find(item => item.id === languageSelect.value);
+    if (next) switchLanguage(next);
+  }
+
+  function switchLanguage(next) {
+    saveDraft();
     language = next;
-    if (ctx.user) storage.set(`oj.lastLanguage.${ctx.user.id}.${problem.id}`, next.id);
-    editor.setLanguage(next.highlight || '');
-    currentLimit.replaceChildren(icon('clock', 14), document.createTextNode(limitText(problem, next)));
-    languageHint.textContent = limitText(problem, next);
+    if (next) storage.set(languageKey, next.id);
+    languageSelect.value = next?.id || '';
+    editor.setLanguage(next?.highlight || next?.id || '');
     configureInitialCode();
+    updateLanguageControls();
+  }
+
+  function updateLanguageOptions() {
+    languageSelect.replaceChildren(...languages.map(item => el('option', { value: item.id }, item.display || item.id)));
+    if (!languages.length) languageSelect.append(el('option', { value: '' }, '语言列表暂不可用'));
+    languageSelect.value = language?.id || '';
+  }
+
+  function updateLanguageControls() {
+    const ready = language && language.available !== false;
+    languageSelect.disabled = executionBusy || !languages.length;
+    resetButton.disabled = executionBusy || !language;
+    snippetButton.disabled = !editor.hasCompletions();
+    runButton.disabled = submitButton.disabled = executionBusy || !ready;
+    availabilityNotice.hidden = Boolean(ready);
+    availabilityText.textContent = language ? '当前语言暂无法判题，草稿可继续编辑。' : '暂时无法获取语言列表。';
+    currentLimit.replaceChildren(icon('clock', 14), document.createTextNode(limitText(problem, language)));
+  }
+
+  async function refreshAvailability() {
+    retryAvailability.disabled = true;
+    try {
+      const result = await fetchLanguages();
+      if (!ctx.alive()) return;
+      if (!result.languages?.length) throw new Error('暂时无法获取语言列表。');
+      languages = result.languages;
+      const next = languages.find(item => item.id === language?.id);
+      updateLanguageOptions();
+      if (next) {
+        language = next;
+        updateLanguageControls();
+      } else {
+        switchLanguage(languages[0]);
+      }
+    } catch (error) {
+      if (error.name !== 'AbortError') toast(error.message, 'danger');
+    } finally {
+      retryAvailability.disabled = false;
+    }
   }
 
   async function resetTemplate() {
@@ -223,13 +258,11 @@ export async function renderWorkspace(host, ctx, id) {
   }
 
   function showMobilePane(pane) {
-    activeMobilePane = pane;
     split.classList.toggle('show-code', pane === 'code');
     descriptionTab.classList.toggle('active', pane === 'description');
     codeTab.classList.toggle('active', pane === 'code');
     descriptionTab.setAttribute('aria-selected', String(pane === 'description'));
     codeTab.setAttribute('aria-selected', String(pane === 'code'));
-    if (pane === 'code') requestAnimationFrame(() => editor.focus());
   }
 
   function showProblemTab(tab) {
@@ -251,11 +284,15 @@ export async function renderWorkspace(host, ctx, id) {
     outputTab.classList.toggle('active', !input);
     inputTab.setAttribute('aria-selected', String(input));
     outputTab.setAttribute('aria-selected', String(!input));
-    consolePanel.classList.remove('collapsed');
+    setConsoleCollapsed(false);
   }
 
   function toggleConsole() {
-    const collapsed = consolePanel.classList.toggle('collapsed');
+    setConsoleCollapsed(!consolePanel.classList.contains('collapsed'));
+  }
+
+  function setConsoleCollapsed(collapsed) {
+    consolePanel.classList.toggle('collapsed', collapsed);
     consoleToggle.replaceChildren(icon(collapsed ? 'chevron' : 'down', 16));
     consoleToggle.setAttribute('aria-expanded', String(!collapsed));
   }
@@ -269,15 +306,13 @@ export async function renderWorkspace(host, ctx, id) {
   }
 
   function restoreSubmission(sub) {
-    const target = ctx.languages.find(item => item.id === sub.language);
-    if (target) {
-      language = target;
-      if (ctx.user) storage.set(`oj.lastLanguage.${ctx.user.id}.${problem.id}`, target.id);
-      languageSelect.value = target.id;
-      editor.setLanguage(target.highlight || '');
-      currentLimit.replaceChildren(icon('clock', 14), document.createTextNode(limitText(problem, target)));
-      languageHint.textContent = limitText(problem, target);
+    let target = languages.find(item => item.id === sub.language);
+    if (!target) {
+      target = { id: sub.language, display: sub.language, available: false };
+      languages = [...languages, target];
+      updateLanguageOptions();
     }
+    if (target.id !== language?.id) switchLanguage(target);
     editor.setValue(sub.code);
     showProblemTab('description');
     showMobilePane('code');
@@ -285,8 +320,8 @@ export async function renderWorkspace(host, ctx, id) {
   }
 
   async function runCode() {
+    if (runButton.disabled) return;
     if (!ctx.requireLogin()) return;
-    if (!language) { toast('当前没有可用的判题语言', 'danger'); return; }
     if (!currentDraft.trim()) { toast('请先编写代码', 'danger'); return; }
     setExecutionBusy(true);
     showConsoleTab('output');
@@ -306,8 +341,8 @@ export async function renderWorkspace(host, ctx, id) {
   }
 
   async function submitCode() {
+    if (submitButton.disabled) return;
     if (!ctx.requireLogin()) return;
-    if (!language) { toast('当前没有可用的判题语言', 'danger'); return; }
     if (!currentDraft.trim()) { toast('请先编写代码', 'danger'); return; }
     setExecutionBusy(true);
     showConsoleTab('output');
@@ -364,7 +399,8 @@ export async function renderWorkspace(host, ctx, id) {
   }
 
   function setExecutionBusy(busy) {
-    for (const control of [runButton, submitButton, languageSelect, resetButton]) control.disabled = busy;
+    executionBusy = busy;
+    updateLanguageControls();
     runButton.classList.toggle('loading', busy);
     submitButton.classList.toggle('loading', busy);
     if (busy) {
@@ -373,11 +409,6 @@ export async function renderWorkspace(host, ctx, id) {
     } else {
       runButton.removeAttribute('aria-label');
       submitButton.removeAttribute('aria-label');
-      if (!ctx.languages.length) {
-        languageSelect.disabled = true;
-        runButton.disabled = true;
-        submitButton.disabled = true;
-      }
     }
   }
 
@@ -422,7 +453,7 @@ export async function renderWorkspace(host, ctx, id) {
     let dragging = false, startY = 0, startHeight = 0;
     const move = event => {
       if (!dragging) return;
-      const height = Math.min(innerHeight * 0.65, Math.max(140, startHeight - (event.clientY - startY)));
+      const height = Math.min(codeWorkspace.clientHeight * 0.42, Math.max(100, startHeight - (event.clientY - startY)));
       consolePanel.style.setProperty('--console-height', `${height}px`);
     };
     const stop = () => {
@@ -443,14 +474,14 @@ export async function renderWorkspace(host, ctx, id) {
     consoleResize.addEventListener('pointermove', move);
     consoleResize.addEventListener('pointerup', stop);
     consoleResize.addEventListener('pointercancel', stop);
-    const saved = Number(storage.get('oj.consoleHeight', '240')) || 240;
+    const saved = Number(storage.get('oj.consoleHeight', '168')) || 168;
     consolePanel.style.setProperty('--console-height', `${saved}px`);
   }
 
   document.addEventListener('keydown', shortcuts);
   ctx.cleanup(() => document.removeEventListener('keydown', shortcuts));
   function shortcuts(event) {
-    if (!(event.ctrlKey || event.metaKey) || event.key !== 'Enter') return;
+    if (event.defaultPrevented || event.isComposing || !(event.ctrlKey || event.metaKey) || event.key !== 'Enter') return;
     event.preventDefault();
     if (event.shiftKey) submitCode(); else runCode();
   }

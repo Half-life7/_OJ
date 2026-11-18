@@ -6,9 +6,6 @@ export const NAV = [
     enabled: true, inNavbar: true,
     children: [
       { id: 'problems-all', label: '全部题目', icon: 'list', path: '/problems' },
-      { id: 'problems-easy', label: '简单', path: '/problems?difficulty=easy' },
-      { id: 'problems-medium', label: '中等', path: '/problems?difficulty=medium' },
-      { id: 'problems-hard', label: '困难', path: '/problems?difficulty=hard' },
       { id: 'problems-random', label: '随机一题', icon: 'refresh', path: '/problems?random=1' },
     ],
   },
@@ -52,8 +49,8 @@ export function matchesPath(path, current = location.pathname + location.search)
     const target = new URL(path, location.origin);
     const actual = new URL(current, location.origin);
     if (target.pathname.replace(/\/$/, '') !== actual.pathname.replace(/\/$/, '')) return false;
-    const filters = ['q', 'difficulty', 'tag', 'random'];
     if (![...target.searchParams.keys()].length) {
+      const filters = target.pathname === '/problems' ? ['random'] : ['q', 'difficulty', 'tag', 'random'];
       return filters.every(key => !actual.searchParams.has(key));
     }
     return [...target.searchParams.entries()].every(([key, value]) => actual.searchParams.get(key) === value);

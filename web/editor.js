@@ -1,7 +1,9 @@
 import { el, storage } from './ui.js';
+import { snippets } from './editor-snippets.js';
 
 const words = new Set(('alignas auto bool break case catch char class const constexpr continue default def del do double else elif enum except extends false False final finally float for from if import in include inline int interface is lambda long namespace new None not null or override pass private protected public raise return short signed sizeof static string struct super switch template this throw throws true True try typedef typename unsigned using var virtual void volatile while with yield and as assert async await boolean byte package print range len self System String').split(' '));
 const tokenPattern = /(\/\*[\s\S]*?(?:\*\/|$)|\/\/[^\n]*|\#[^\n]*|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|\b[A-Za-z_]\w*\b)/g;
+let nextCompletionID = 0;
 
 export function highlight(code, language = '') {
   const frag = document.createDocumentFragment(); let offset = 0;
@@ -26,15 +28,31 @@ export function createEditor(container, options = {}) {
   const listeners = new Set(options.onChange ? [options.onChange] : []);
   const lines = el('div', { class: 'editor-line-numbers', 'aria-hidden': 'true' });
   const paint = el('pre', { class: 'editor-highlight', 'aria-hidden': 'true' });
-  const input = el('textarea', { class: 'editor-input', spellcheck: false, autocapitalize: 'off', autocomplete: 'off', autocorrect: 'off', wrap: 'off', 'aria-label': options.label || '代码编辑器', value: options.value || '', readOnly: !!options.readOnly });
-  const body = el('div', { class: 'editor-body' }, lines, el('div', { class: 'editor-viewport' }, paint, input));
+  const input = el('textarea', { class: 'editor-input', autocapitalize: 'off', autocomplete: 'off', autocorrect: 'off', wrap: 'off', 'aria-label': options.label || '代码编辑器', value: options.value || '', readOnly: !!options.readOnly });
+  input.spellcheck = false;
+  const completionList = el('div', { id: `editor-completions-${++nextCompletionID}`, role: 'listbox', 'aria-label': '代码补全', class: 'editor-completions', hidden: true });
+  input.setAttribute('aria-autocomplete', 'list');
+  input.setAttribute('aria-controls', completionList.id);
+  const viewport = el('div', { class: 'editor-viewport' }, paint, input, completionList);
+  const body = el('div', { class: 'editor-body' }, lines, viewport);
   const position = el('span', {}, '行 1，列 1');
-  const state = el('span', { class: 'muted' }, options.readOnly ? '只读' : 'UTF-8 · 4 空格');
+  const state = el('span', { class: 'muted' });
   const root = el('div', { class: 'code-editor', style: { '--code-font-size': `${options.fontSize || Number(storage.get('oj.fontSize', '14'))}px` } }, body, el('div', { class: 'editor-status' }, position, state));
   container?.append(root);
+  let completion = null;
+  const encoder = new TextEncoder();
   function syncScroll() { paint.scrollTop = input.scrollTop; paint.scrollLeft = input.scrollLeft; lines.scrollTop = input.scrollTop; }
   function updatePosition() { const before = input.value.slice(0, input.selectionStart); position.textContent = `行 ${before.split('\n').length}，列 ${before.length - before.lastIndexOf('\n')}`; }
-  function render() { if (destroyed) return; paint.replaceChildren(highlight(input.value + '\n', language)); lines.textContent = Array.from({length: input.value.split('\n').length}, (_,i) => i + 1).join('\n'); syncScroll(); updatePosition(); }
+  function render() {
+    if (destroyed) return;
+    const code = input.value;
+    paint.replaceChildren(highlight(`${code}\n`, language));
+    lines.textContent = Array.from({ length: code.split('\n').length }, (_, i) => i + 1).join('\n');
+    const bytes = encoder.encode(code).length.toLocaleString('zh-CN');
+    state.textContent = input.readOnly ? '只读' : `${bytes} 字节 · 4 空格`;
+    syncScroll();
+    updatePosition();
+  }
   function changed() { cancelAnimationFrame(frame); frame = requestAnimationFrame(render); for (const listener of listeners) listener(input.value); }
   function insert(text, start = input.selectionStart, end = input.selectionEnd, selectStart, selectEnd) {
     input.setSelectionRange(start, end);
@@ -44,8 +62,83 @@ export function createEditor(container, options = {}) {
     if (selectStart != null) input.setSelectionRange(selectStart, selectEnd ?? selectStart);
     updatePosition();
   }
+  function closeCompletions() {
+    completion = null;
+    completionList.hidden = true;
+    input.removeAttribute('aria-activedescendant');
+  }
+  function selectCompletion(index) {
+    completion.index = (index + completion.items.length) % completion.items.length;
+    const rows = [...completionList.children];
+    rows.forEach((row, i) => row.setAttribute('aria-selected', String(i === completion.index)));
+    const active = rows[completion.index];
+    input.setAttribute('aria-activedescendant', active.id);
+    if (active.offsetTop < completionList.scrollTop) completionList.scrollTop = active.offsetTop;
+    if (active.offsetTop + active.offsetHeight > completionList.scrollTop + completionList.clientHeight) {
+      completionList.scrollTop = active.offsetTop + active.offsetHeight - completionList.clientHeight;
+    }
+  }
+  function languageSnippets() {
+    return Object.hasOwn(snippets, language) ? snippets[language] : [];
+  }
+  function positionCompletions() {
+    if (!completion) return;
+    const style = getComputedStyle(input);
+    const lineHeight = parseFloat(style.lineHeight);
+    const line = input.value.slice(0, input.selectionStart).split('\n').length - 1;
+    const rowTop = parseFloat(style.paddingTop) + line * lineHeight - input.scrollTop;
+    if (rowTop + lineHeight < 0 || rowTop > viewport.clientHeight) return closeCompletions();
+    const popupHeight = completionList.offsetHeight;
+    const below = rowTop + lineHeight;
+    const top = below + popupHeight > viewport.clientHeight && rowTop >= popupHeight ? rowTop - popupHeight : below;
+    completionList.style.top = `${Math.max(4, Math.min(top, viewport.clientHeight - popupHeight - 4))}px`;
+  }
+  function showCompletions(manual = false) {
+    const start = input.selectionStart, end = input.selectionEnd;
+    if (input.readOnly || (start !== end && !manual)) return closeCompletions();
+    const line = input.value.slice(input.value.lastIndexOf('\n', start - 1) + 1, start);
+    const prefix = start === end ? line.match(/\b[A-Za-z_]\w*$/)?.[0] || '' : '';
+    if (!manual && !prefix) return closeCompletions();
+    const candidates = languageSnippets();
+    const matches = candidates.filter(([name]) => name.toLowerCase().startsWith(prefix.toLowerCase()));
+    const items = matches.length ? matches : manual ? candidates : [];
+    if (!items.length) return closeCompletions();
+    const replaceLength = matches.length ? prefix.length : 0;
+    const suffix = replaceLength ? input.value.slice(end).match(/^\w*/)[0].length : 0;
+    completion = { start: start - replaceLength, end: end + suffix, indent: line.match(/^[ \t]*/)[0], items };
+    completionList.replaceChildren(...items.map(([name, description], index) => el('button', {
+      type: 'button', id: `${completionList.id}-${index}`, role: 'option', tabIndex: -1,
+      onpointerdown: event => event.preventDefault(), onclick: () => applyCompletion(index),
+    }, el('code', {}, name), el('span', {}, description))));
+    completionList.hidden = false;
+    positionCompletions();
+    if (!completion) return;
+    selectCompletion(0);
+  }
+  function applyCompletion(index) {
+    if (!completion) return;
+    const { items, start, end, indent } = completion;
+    const text = items[index][2].replaceAll('\n', `\n${indent}`);
+    const cursor = text.indexOf('$0');
+    input.focus();
+    insert(text.replace('$0', ''), start, end, cursor < 0 ? start + text.length : start + cursor);
+    closeCompletions();
+  }
   function keydown(event) {
     if (input.readOnly || event.isComposing) return;
+    if ((event.ctrlKey || event.metaKey) && event.code === 'Space') {
+      event.preventDefault();
+      showCompletions(true);
+      return;
+    }
+    if (completion && ['ArrowDown', 'ArrowUp', 'Escape', 'Tab'].includes(event.key) && !event.shiftKey) {
+      event.preventDefault();
+      if (event.key === 'Escape') closeCompletions();
+      else if (event.key === 'Tab') applyCompletion(completion.index);
+      else selectCompletion(completion.index + (event.key === 'ArrowDown' ? 1 : -1));
+      return;
+    }
+    closeCompletions();
     const value = input.value, start = input.selectionStart, end = input.selectionEnd;
     if (event.key === 'Tab') {
       event.preventDefault();
@@ -72,16 +165,26 @@ export function createEditor(container, options = {}) {
       event.preventDefault(); insert('',start-1,start+1);
     }
   }
-  input.addEventListener('input', changed); input.addEventListener('scroll', syncScroll); input.addEventListener('keydown', keydown);
-  input.addEventListener('click', updatePosition); input.addEventListener('keyup', updatePosition); input.addEventListener('select', updatePosition);
+  input.addEventListener('input', event => {
+    changed();
+    if (!event.isComposing && event.inputType === 'insertText' && /\w$/.test(event.data || '')) showCompletions();
+    else closeCompletions();
+  });
+  input.addEventListener('blur', closeCompletions);
+  input.addEventListener('scroll', () => { syncScroll(); positionCompletions(); });
+  input.addEventListener('keydown', keydown);
+  input.addEventListener('click', () => { updatePosition(); closeCompletions(); });
+  input.addEventListener('keyup', updatePosition); input.addEventListener('select', updatePosition);
   render();
   return {
     element: root, textarea: input,
     getValue: () => input.value,
-    setValue(value, { silent = false } = {}) { input.value = String(value ?? ''); input.setSelectionRange(0,0); render(); if (!silent) for (const listener of listeners) listener(input.value); },
-    setLanguage(value) { language = value || ''; render(); },
+    setValue(value, { silent = false } = {}) { closeCompletions(); input.value = String(value ?? ''); input.setSelectionRange(0,0); render(); if (!silent) for (const listener of listeners) listener(input.value); },
+    setLanguage(value) { closeCompletions(); language = value || ''; render(); },
     setFontSize(value) { const size = Math.min(24, Math.max(11, Number(value) || 14)); root.style.setProperty('--code-font-size', `${size}px`); storage.set('oj.fontSize',size); syncScroll(); },
-    setReadOnly(value) { input.readOnly = !!value; state.textContent = value ? '只读' : 'UTF-8 · 4 空格'; },
+    setReadOnly(value) { input.readOnly = !!value; closeCompletions(); render(); },
+    hasCompletions: () => Boolean(languageSnippets().length),
+    showCompletions() { input.focus(); showCompletions(true); },
     focus() { input.focus(); },
     onChange(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     destroy() { destroyed = true; cancelAnimationFrame(frame); listeners.clear(); root.remove(); },

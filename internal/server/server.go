@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,13 +49,7 @@ func New(s *store.Store, a *auth.Service, j *judge.Engine, c config.Config) http
 		}
 		write(w, 200, map[string]any{"status": status, "sandbox_available": healthy, "available_languages": len(j.Available())})
 	})
-	mux.HandleFunc("GET /api/languages", func(w http.ResponseWriter, r *http.Request) {
-		items := []map[string]any{}
-		for _, l := range j.Available() {
-			items = append(items, map[string]any{"id": l.ID, "display": l.Display, "highlight": l.Highlight, "template": l.Template, "time_factor": l.TimeFactor, "time_extra_ms": l.TimeExtraMS, "memory_factor": l.MemoryFactor, "memory_extra_mb": l.MemoryExtraMB, "proc_limit": l.ProcLimit})
-		}
-		write(w, 200, map[string]any{"languages": items})
-	})
+	mux.HandleFunc("GET /api/languages", h.listLanguages)
 	mux.HandleFunc("GET /api/tags", func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.Tags(r.Context())
 		if e != nil {
@@ -114,6 +109,36 @@ func New(s *store.Store, a *auth.Service, j *judge.Engine, c config.Config) http
 	})
 	return h.middleware(a.Middleware(mux))
 }
+
+func (h *Server) listLanguages(w http.ResponseWriter, r *http.Request) {
+	available := h.judge.Available()
+	ready := make(map[string]judge.Language, len(available))
+	for _, l := range available {
+		ready[l.ID] = l
+	}
+	languages := available
+	if r.URL.Query().Get("include_unavailable") == "1" {
+		languages = make([]judge.Language, 0, len(h.languages))
+		for _, l := range h.languages {
+			if active, ok := ready[l.ID]; ok {
+				l = active
+			}
+			languages = append(languages, l)
+		}
+		sort.Slice(languages, func(i, j int) bool { return languages[i].ID < languages[j].ID })
+	}
+	items := make([]map[string]any, 0, len(languages))
+	for _, l := range languages {
+		_, isAvailable := ready[l.ID]
+		items = append(items, map[string]any{
+			"id": l.ID, "display": l.Display, "highlight": l.Highlight, "template": l.Template,
+			"time_factor": l.TimeFactor, "time_extra_ms": l.TimeExtraMS, "memory_factor": l.MemoryFactor,
+			"memory_extra_mb": l.MemoryExtraMB, "proc_limit": l.ProcLimit, "available": isAvailable,
+		})
+	}
+	write(w, 200, map[string]any{"languages": items})
+}
+
 func write(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -252,6 +277,11 @@ func (h *Server) problem(w http.ResponseWriter, r *http.Request) {
 	p.EffectiveLimits = map[string]model.Limits{}
 	for _, l := range h.judge.Available() {
 		p.EffectiveLimits[l.ID] = judge.EffectiveLimits(p, l)
+	}
+	for _, l := range h.languages {
+		if _, ok := p.EffectiveLimits[l.ID]; !ok {
+			p.EffectiveLimits[l.ID] = judge.EffectiveLimits(p, l)
+		}
 	}
 	write(w, 200, p)
 }

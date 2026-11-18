@@ -567,19 +567,31 @@ dialog.dialog::backdrop { background: rgb(6 14 10 / 46%); backdrop-filter: blur(
 .syntax-string { color: color-mix(in srgb, var(--accent) 85%, var(--text)); }
 .syntax-comment { color: var(--muted); font-style: italic; }
 .syntax-number { color: color-mix(in srgb, var(--warning) 88%, var(--text)); }
-.editor-status, .editor-substatus { min-height: 30px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 11px; color: var(--muted); border-top: 1px solid var(--line); font-size: .72rem; }
+.editor-status { min-height: 28px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 11px; color: var(--muted); border-top: 1px solid var(--line); font-size: .72rem; }
+.editor-completions {
+  position: absolute; z-index: 2; left: 8px; width: min(290px, calc(100% - 16px));
+  max-height: min(200px, 58%); overflow: auto; padding: 4px; border: 1px solid var(--line-strong);
+  border-radius: 8px; background: var(--bg-elevated); box-shadow: var(--shadow-md);
+}
+.editor-completions button {
+  width: 100%; min-height: 32px; display: flex; align-items: center; gap: 12px; padding: 5px 8px;
+  border: 0; border-radius: 5px; background: transparent; text-align: left; font-size: .79rem;
+}
+.editor-completions button[aria-selected="true"], .editor-completions button:hover { background: var(--accent-soft); }
+.editor-completions code { color: var(--accent-strong); font-weight: 680; }
+.editor-completions span { color: var(--muted); }
 
 /* Problem workspace */
-.workspace-main { height: calc(100dvh - var(--topbar)); padding: 0 14px; overflow: hidden; }
-.workspace-main > * { max-width: none; }
+.workspace-shell { min-height: 100dvh; }
+.workspace-main { min-height: 0; height: 100dvh; padding: calc(var(--topbar) + 8px) 14px 0; overflow: hidden; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+.workspace-main > * { width: 100%; max-width: none; }
 .workspace-shell .sidebar { padding-top: 14px; }
 .workspace-shell .nav-label { font-size: .78rem; opacity: .7; padding-bottom: 8px; }
 .workspace-mobile-tabs { display: none; }
 .workspace-split {
   --split-position: 50%;
-  height: calc(100dvh - var(--topbar) - 62px);
   display: grid; grid-template-columns: minmax(0, var(--split-position)) 7px minmax(0, calc(100% - var(--split-position) - 7px));
-  gap: 0; min-height: 420px;
+  gap: 0; min-height: 0;
 }
 .workspace-pane { min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-elevated); }
 .split-divider { position: relative; cursor: col-resize; touch-action: none; }
@@ -623,13 +635,14 @@ dialog.dialog::backdrop { background: rgb(6 14 10 / 46%); backdrop-filter: blur(
 .history-metrics { display: flex; flex-direction: column; align-items: end; gap: 3px; color: var(--muted); font-size: .72rem; }
 .editor-pane { display: flex; }
 .code-workspace { min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; }
-.editor-toolbar { min-height: 50px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
-.editor-toolbar select { width: auto; min-width: 126px; min-height: 36px; padding-block: 5px; }
-.editor-mount { min-height: 180px; flex: 1; display: flex; }
+.editor-toolbar { min-height: 48px; flex-shrink: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px 10px; padding: 5px 10px; border-bottom: 1px solid var(--line); }
+.editor-toolbar label { color: var(--muted); font-size: .8rem; }
+.editor-toolbar select { width: auto; max-width: 100%; min-width: 115px; min-height: 36px; padding-block: 5px; }
+.editor-mount { min-height: 0; flex: 1; display: flex; }
 .editor-mount > .code-editor { width: 100%; }
 .console-panel {
-  --console-height: 240px;
-  height: var(--console-height); min-height: 38px; display: flex; flex-direction: column;
+  --console-height: 168px;
+  height: min(var(--console-height), 42%); min-height: 38px; flex-shrink: 0; display: flex; flex-direction: column;
   border-top: 1px solid var(--line); background: var(--bg-elevated);
 }
 .console-panel.collapsed { height: 39px; }
@@ -643,12 +656,12 @@ dialog.dialog::backdrop { background: rgb(6 14 10 / 46%); backdrop-filter: blur(
 .console-input { height: 100%; min-height: 0; resize: none; border: 0; border-radius: 0; background: var(--bg-code); padding: 12px; font-family: var(--font-mono); font-size: .84rem; }
 .console-input:focus { box-shadow: none; }
 .console-output-pane { padding: 10px; }
-.workspace-language-warning { margin: 8px; }
+.workspace-language-warning { display: flex; flex-wrap: wrap; align-items: center; flex-shrink: 0; gap: 0 8px; padding: 3px 10px; color: var(--warning); background: var(--warning-soft); font-size: .8rem; }
+.workspace-language-warning .btn { min-height: 27px; }
 .workspace-actions {
-  height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 9px 4px; background: color-mix(in srgb, var(--bg) 94%, transparent);
+  min-height: 54px; display: flex; align-items: center; justify-content: flex-end;
+  padding: 5px 4px max(5px, env(safe-area-inset-bottom));
 }
-.workspace-action-note { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: .76rem; }
 .workspace-actions .run-btn { min-width: 100px; }
 .workspace-actions .submit-btn { min-width: 116px; }
 .workspace-actions .btn.loading { position: relative; }
@@ -707,19 +720,17 @@ dialog.dialog::backdrop { background: rgb(6 14 10 / 46%); backdrop-filter: blur(
 }
 
 @media (max-width: 1023px) {
-  .workspace-main { overflow: auto; height: auto; min-height: calc(100dvh - var(--topbar)); padding-bottom: 62px; }
-  .workspace-mobile-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 9px 0; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-elevated); }
+  .workspace-main { grid-template-rows: auto minmax(0, 1fr) auto; }
+  .workspace-mobile-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin: 0 0 7px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-elevated); }
   .mobile-tab { min-height: 40px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-weight: 650; }
   .mobile-tab.active { color: var(--accent-strong); background: var(--accent-soft); }
-  .workspace-split { height: auto; min-height: calc(100dvh - var(--topbar) - 180px); display: block; }
-  .workspace-pane { height: calc(100dvh - var(--topbar) - 125px); min-height: 440px; }
+  .workspace-split { display: block; }
+  .workspace-pane { height: 100%; }
   .split-divider { display: none; }
   .workspace-split .problem-pane { display: flex; }
   .workspace-split .editor-pane { display: none; }
   .workspace-split.show-code .problem-pane { display: none; }
   .workspace-split.show-code .editor-pane { display: flex; }
-  .workspace-actions { position: fixed; z-index: 30; left: var(--sidebar); right: 0; bottom: 0; padding: 9px 15px; border-top: 1px solid var(--line); backdrop-filter: blur(14px); }
-  .sidebar-collapsed .workspace-actions { left: var(--sidebar-collapsed); }
   .auth-layout { grid-template-columns: .85fr 1.15fr; }
   .auth-story { padding: 34px; }
 }
@@ -752,10 +763,8 @@ dialog.dialog::backdrop { background: rgb(6 14 10 / 46%); backdrop-filter: blur(
   .sidebar-collapsed .sidebar-bottom { justify-content: flex-start; }
   .drawer-overlay.open { position: fixed; z-index: 39; inset: var(--topbar) 0 0; display: block; width: 100%; border: 0; background: rgb(0 0 0 / 38%); }
   .main-content, .sidebar-collapsed .main-content { margin-left: 0; padding: calc(var(--topbar) + 22px) 14px 38px; }
-  .workspace-main { padding: calc(var(--topbar) + 0px) 8px 0; }
-  .workspace-actions, .sidebar-collapsed .workspace-actions { left: 0; }
-  .workspace-action-note { display: none; }
-  .workspace-actions { justify-content: flex-end; }
+  .workspace-main, .sidebar-collapsed .workspace-main { padding: calc(var(--topbar) + 5px) 8px 0; }
+  .workspace-actions > .row { width: 100%; }
   .workspace-actions .btn { flex: 1; }
   .page-heading { align-items: start; flex-direction: column; gap: 13px; }
   .page-heading > .row { width: 100%; flex-wrap: wrap; }
@@ -781,11 +790,7 @@ dialog.dialog::backdrop { background: rgb(6 14 10 / 46%); backdrop-filter: blur(
   .side-link, .account-link, .workspace-tab, .mobile-tab { min-height: 44px; }
   .workspace-tabbar { padding-inline: 7px; }
   .problem-scroll { padding: 21px 18px; }
-  .editor-toolbar { align-items: stretch; flex-direction: column; }
-  .editor-toolbar > .row { justify-content: space-between; }
-  .editor-toolbar > .row:first-child { flex-wrap: wrap; }
-  .editor-pane .code-editor { min-height: 320px; }
-  .console-panel { --console-height: 210px !important; }
+  .editor-toolbar > .row { flex-wrap: wrap; }
   .result-summary { align-items: start; flex-direction: column; }
   .form-section { padding: 17px 14px; }
   .testcase-toolbar { align-items: stretch; flex-direction: column; }

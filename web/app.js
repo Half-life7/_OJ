@@ -46,7 +46,7 @@ function toggleDrawer() { drawerOpen = !drawerOpen; sidebar.classList.toggle('op
 function setCollapsed(value, save = true) { shell.classList.toggle('sidebar-collapsed', value); collapseButton?.setAttribute('aria-expanded', String(!value)); if (save) storage.set('oj.sidebarCollapsed', value ? '1' : '0'); }
 function navItem(item, child = false) {
   const active = matchesPath(item.path);
-  const node = link('', item.path, { class: `side-link ${child ? 'child' : ''} ${active ? 'active' : ''}`, title: item.label, 'aria-current': active ? 'page' : null });
+  const node = link('', item.path, { class: `side-link ${child ? 'child' : ''} ${active ? 'active' : ''}`, title: item.label, 'aria-label': item.label, 'aria-current': active ? 'page' : null });
   node.append(icon(item.icon), el('span', {}, item.label)); return node;
 }
 function buildShell(workspace, authPage) {

@@ -24,11 +24,47 @@ const fs = require('node:fs');
         assert.equal(await page.locator('.startup-error,.error-state').count(),0,`route failed ${route}`);
         assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+2),`horizontal overflow ${route} ${viewport.width}`);
         if(route==='/problems/1'){
-          assert.ok(await page.locator('.code-editor').count(),'workspace editor missing');
           assert.ok(await page.locator('.sample-card').count(),'workspace samples missing');
+          if (viewport.width < 1024) await page.getByRole('button', { name: '代码', exact: true }).click();
+          const editor = page.getByRole('textbox', { name: '代码编辑器' });
+          const languages = page.getByRole('combobox', { name: '选择编程语言' });
+          assert.equal(await editor.evaluate(node => node.spellcheck), false, 'editor still checks spelling');
+          assert.equal(await page.locator('.console-panel.collapsed').count(), 1, 'console should start collapsed');
+          assert.ok(await page.evaluate(() => Math.abs(document.querySelector('.workspace-actions').getBoundingClientRect().bottom - innerHeight) < 2), 'workspace leaves a bottom gap');
+          await languages.selectOption('cpp17');
+          await editor.fill('');
+          await editor.pressSequentially('ci');
+          await page.getByRole('option', { name: /cin/ }).waitFor();
+          await editor.press('Tab');
+          assert.equal(await editor.inputValue(), 'cin >> ;');
+          await languages.selectOption('python3');
+          await editor.fill('print(42)');
+          await languages.selectOption('cpp17');
+          assert.equal(await editor.inputValue(), 'cin >> ;');
+          await languages.selectOption('java');
+          await editor.fill('');
+          await page.getByRole('button', { name: '代码片段', exact: true }).click();
+          await page.getByRole('option', { name: /sout/ }).click();
+          assert.equal(await editor.inputValue(), 'System.out.println();');
+          const notice = page.locator('.workspace-language-warning');
+          if (await notice.isVisible()) {
+            const run = page.getByRole('button', { name: '运行', exact: true });
+            assert.ok(await run.isDisabled(), 'an unavailable language should not run');
+            await page.route('**/api/languages?include_unavailable=1', async route => {
+              const response = await route.fetch();
+              const data = await response.json();
+              data.languages.find(language => language.id === 'java').available = true;
+              await route.fulfill({ response, json: data });
+            });
+            await page.getByRole('button', { name: '重新检测', exact: true }).click();
+            await notice.waitFor({ state: 'hidden' });
+            assert.ok(await run.isEnabled(), 'a recovered language should run');
+            assert.equal(await editor.inputValue(), 'System.out.println();', 'refresh should keep the current draft');
+          }
         }
         if(route.includes('difficulty=easy')){
-          assert.equal((await page.locator('.side-link.active').innerText()).trim(),'简单','query-aware sidebar selection failed');
+          assert.deepEqual(await page.locator('.nav-children .side-link').evaluateAll(links => links.map(link => link.title)), ['全部题目', '随机一题']);
+          assert.equal(await page.locator('.side-link.active').getAttribute('title'), '全部题目', 'filtered list should keep the problem bank selected');
         }
       }
       if(process.env.OJ_TEST_ADMIN_PASSWORD){

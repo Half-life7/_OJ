@@ -726,6 +726,19 @@ func TestAPIStaticAssetsAndDeepLinkFallback(t *testing.T) {
 			t.Errorf("public language metadata exposed %q", field)
 		}
 	}
+	configured := h.request(t, client, "GET", "/api/languages?include_unavailable=1", nil)
+	requireAPIStatus(t, configured, 200)
+	all := decodeAPI[struct {
+		Languages []struct {
+			ID        string `json:"id"`
+			Template  string `json:"template"`
+			Available bool   `json:"available"`
+		} `json:"languages"`
+	}](t, configured).Languages
+	if len(all) != 3 || all[0].ID != "cpp17" || all[0].Available || all[0].Template == "" ||
+		all[1].ID != "java" || all[1].Available || all[2].ID != "python3" || !all[2].Available {
+		t.Fatalf("unexpected editor languages: %s", configured.body)
+	}
 	index, err := web.Assets.ReadFile("index.html")
 	if err != nil {
 		t.Fatal(err)
