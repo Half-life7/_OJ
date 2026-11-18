@@ -27,7 +27,12 @@ var (
 	ErrInvalidSubmission = errors.New("invalid submission")
 )
 
-const queueCapacity = 128
+const (
+	queueCapacity = 128
+	probeSlotWait = 4 * time.Second
+	// go-judge permits up to 11 seconds of wall time for a 5-second probe.
+	probeRequestTimeout = 15 * time.Second
+)
 
 // Engine owns the only execution slot pool. A slot is held across compilation,
 // every testcase and artifact cleanup, including self-tests, verification and bench.
@@ -240,29 +245,40 @@ func (e *Engine) acquire(ctx context.Context) (string, error) {
 }
 
 func (e *Engine) probe() {
-	next := make(map[string]bool)
 	ids := make([]string, 0, len(e.langs))
 	for id := range e.langs {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	for _, id := range ids {
-		ctx, cancel := context.WithTimeout(e.serviceCtx, 4*time.Second)
-		core, err := e.acquire(ctx)
-		if err == nil {
-			err = e.sb.Probe(ctx, e.langs[id])
-			e.slots <- core
+		slotCtx, cancelSlot := context.WithTimeout(e.serviceCtx, probeSlotWait)
+		core, err := e.acquire(slotCtx)
+		cancelSlot()
+		if err != nil {
+			// A busy judge has not reported a toolchain failure.
+			continue
 		}
-		cancel()
+		started := time.Now()
+		probeCtx, cancelProbe := context.WithTimeout(e.serviceCtx, probeRequestTimeout)
+		err = e.sb.Probe(probeCtx, e.langs[id])
+		cancelProbe()
+		e.healthMu.Lock()
 		if err == nil {
-			next[id] = true
-		} else if e.serviceCtx.Err() == nil {
-			slog.Warn("sandbox language probe failed", "language", id)
+			e.available[id] = true
+		} else {
+			delete(e.available, id)
+		}
+		e.healthMu.Unlock()
+		e.slots <- core
+		if err != nil && e.serviceCtx.Err() == nil {
+			log := slog.With("language", id, "elapsed", time.Since(started), "error", err)
+			var failure *sandbox.ProbeFailure
+			if errors.As(err, &failure) && failure.Detail != "" {
+				log = log.With("diagnostic", sanitizeDiagnostics(failure.Detail, 768))
+			}
+			log.Warn("sandbox language probe failed")
 		}
 	}
-	e.healthMu.Lock()
-	e.available = next
-	e.healthMu.Unlock()
 }
 
 func (e *Engine) maintain() {
@@ -502,6 +518,7 @@ func (e *Engine) compile(ctx context.Context, l Language, code, core string, lim
 			r.Stderr = "编译超过 10 秒限制"
 			return r, nil
 		}
+		slog.Warn("sandbox compile failed", "language", l.ID, "error", err)
 		e.markUnavailable(l.ID)
 		return r, ErrUnavailable
 	}
@@ -540,6 +557,7 @@ func (e *Engine) runCase(ctx context.Context, request sandbox.RunRequest) (sandb
 		if ctx.Err() != nil {
 			return r, ctx.Err()
 		}
+		slog.Warn("sandbox run failed", "language", request.Language.ID, "error", err)
 		e.markUnavailable(request.Language.ID)
 		return r, ErrUnavailable
 	}

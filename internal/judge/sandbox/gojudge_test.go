@@ -121,6 +121,23 @@ func TestInterpretedUploadAndProbe(t *testing.T) {
 	}
 }
 
+func TestProbeFailureKeepsDiagnosticsOutOfPublicError(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `[{"status":"Nonzero Exit Status","exitStatus":1,"error":"private-token","files":{"stderr":"Error loading java.security file"}}]`)
+	}))
+	defer s.Close()
+	err := NewGoJudge(s.URL, "private-token").Probe(context.Background(), Language{Probe: []string{"java"}})
+	var failure *ProbeFailure
+	if !errors.Is(err, ErrUnavailable) || !errors.As(err, &failure) {
+		t.Fatalf("expected a typed probe failure, got %v", err)
+	}
+	if failure.Status != "runtime_error" || failure.ExitCode != 1 ||
+		!strings.Contains(failure.Detail, "java.security") || strings.Contains(failure.Detail, "private-token") ||
+		strings.Contains(err.Error(), "java.security") || strings.Contains(err.Error(), "private-token") {
+		t.Fatalf("unexpected probe diagnostics: %+v, %v", failure, err)
+	}
+}
+
 func TestStatusAndBoundedOutput(t *testing.T) {
 	statuses := map[string]string{"Accepted": "accepted", "Nonzero Exit Status": "runtime_error", "Signalled": "runtime_error", "Dangerous Syscall": "runtime_error", "Time Limit Exceeded": "time_limit_exceeded", "Memory Limit Exceeded": "memory_limit_exceeded", "Output Limit Exceeded": "output_limit_exceeded", "File Error": "system_error", "Internal Error": "system_error", "unexpected": "system_error"}
 	for status, want := range statuses {

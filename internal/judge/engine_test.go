@@ -45,6 +45,28 @@ func (instantSandbox) Run(context.Context, sandbox.RunRequest) (sandbox.RunResul
 }
 func (instantSandbox) Release(context.Context, string) error { return nil }
 
+type compilerProbeSandbox struct{ instantSandbox }
+
+func (compilerProbeSandbox) Probe(ctx context.Context, _ sandbox.Language) error {
+	deadline, ok := ctx.Deadline()
+	if !ok || time.Until(deadline) < 11*time.Second {
+		return context.DeadlineExceeded
+	}
+	return nil
+}
+
+func TestProbeLetsCompilerUseSandboxWallTime(t *testing.T) {
+	java := Language{ID: "java"}
+	engine := New(nil, compilerProbeSandbox{}, map[string]Language{"java": java}, config.Config{Workers: 1})
+	if err := engine.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = engine.Close(context.Background()) })
+	if languages := engine.Available(); len(languages) != 1 || languages[0].ID != java.ID {
+		t.Fatalf("Java probe ended before its sandbox wall-time budget: %v", languages)
+	}
+}
+
 func TestCloseDrainsActiveEvaluation(t *testing.T) {
 	fake := &blockingSandbox{started: make(chan struct{}), release: make(chan struct{})}
 	language := Language{

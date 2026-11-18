@@ -54,6 +54,7 @@ type command struct {
 
 type result struct {
 	Status     string            `json:"status"`
+	Error      string            `json:"error"`
 	ExitStatus int               `json:"exitStatus"`
 	Time       int64             `json:"time"`
 	RunTime    int64             `json:"runTime"`
@@ -64,6 +65,20 @@ type result struct {
 		Type string `json:"type"`
 	} `json:"fileError"`
 }
+
+// ProbeFailure records diagnostics for operator logs. Its public error string
+// excludes output, environment values and sandbox paths.
+type ProbeFailure struct {
+	Status   string
+	ExitCode int
+	Detail   string
+}
+
+func (e *ProbeFailure) Error() string {
+	return fmt.Sprintf("%s: probe status=%s exit_code=%d", ErrUnavailable, e.Status, e.ExitCode)
+}
+
+func (*ProbeFailure) Unwrap() error { return ErrUnavailable }
 
 func validName(s string) bool {
 	return s != "" && s != "." && !strings.ContainsAny(s, "\\\x00?\r\n") && !strings.HasPrefix(s, "/") && path.Clean(s) == s && s != ".." && !strings.HasPrefix(s, "../")
@@ -178,7 +193,15 @@ func (g *GoJudge) Probe(ctx context.Context, l Language) error {
 		return err
 	}
 	if r.Status != "Accepted" || r.ExitStatus != 0 {
-		return ErrUnavailable
+		converted := convert(r)
+		detail := strings.TrimSpace(strings.Join([]string{r.Error, converted.Stderr, converted.Stdout}, "\n"))
+		if g.token != "" {
+			detail = strings.ReplaceAll(detail, g.token, "[redacted]")
+		}
+		if g.baseURL != "" {
+			detail = strings.ReplaceAll(detail, g.baseURL, "[sandbox]")
+		}
+		return &ProbeFailure{Status: converted.Status, ExitCode: r.ExitStatus, Detail: detail}
 	}
 	return nil
 }
@@ -243,7 +266,10 @@ func (g *GoJudge) Compile(ctx context.Context, r CompileRequest) (CompileResult,
 	// Failed compiles can still cache an artifact; never leak it or unrelated files.
 	g.cleanupExcept(raw.FileIDs, out.ArtifactID)
 	if out.Status == "system_error" {
-		return out, ErrUnavailable
+		if raw.Status == "Accepted" && raw.ExitStatus == 0 {
+			return out, fmt.Errorf("%w: compiler did not return a valid artifact", ErrUnavailable)
+		}
+		return out, backendFailure("compile", raw)
 	}
 	return out, nil
 }
@@ -277,9 +303,19 @@ func (g *GoJudge) Run(ctx context.Context, r RunRequest) (RunResult, error) {
 	}
 	out := convert(raw)
 	if out.Status == "system_error" {
-		return out, ErrUnavailable
+		return out, backendFailure("run", raw)
 	}
 	return out, nil
+}
+
+func backendFailure(stage string, r result) error {
+	// Status is reported by the backend. Use a fixed vocabulary in logs.
+	status := "unexpected status"
+	switch r.Status {
+	case "Internal Error", "File Error", "Memory Limit Exceeded", "Output Limit Exceeded", "Accepted":
+		status = r.Status
+	}
+	return fmt.Errorf("%w: %s result: %s (exit_code=%d)", ErrUnavailable, stage, status, r.ExitStatus)
 }
 
 func (g *GoJudge) Release(ctx context.Context, id string) error {
