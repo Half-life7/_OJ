@@ -46,7 +46,14 @@ languages:
     display: Java
     source: Main.java
     artifact: main.jar
-    compile: [/bin/sh, -c, 'mkdir -p classes && /usr/bin/javac -J-XX:ActiveProcessorCount=1 -J-XX:+UseSerialGC -J-XX:-UsePerfData -encoding UTF-8 -d classes Main.java && /usr/bin/jar -J-XX:ActiveProcessorCount=1 -J-XX:+UseSerialGC -J-XX:-UsePerfData cf main.jar -C classes .']
+    # Keep jar's staging file beside main.jar. go-judge mounts /tmp separately.
+    compile:
+      - /bin/sh
+      - -c
+      - |
+        mkdir -p classes &&
+        /usr/bin/javac -J-XX:ActiveProcessorCount=1 -J-XX:+UseSerialGC -J-XX:-UsePerfData -encoding UTF-8 -d classes Main.java &&
+        /usr/bin/jar -J-Djava.io.tmpdir=. -J-XX:ActiveProcessorCount=1 -J-XX:+UseSerialGC -J-XX:-UsePerfData cf main.jar -C classes .
     run: [/usr/bin/java, '-XX:+UseSerialGC', '-XX:ActiveProcessorCount=1', '-XX:-UsePerfData', '-Xshare:auto', '-Dfile.encoding=UTF-8', '-Xss64m', '-Xmx{memory_mb}m', -cp, main.jar, Main]
     probe:
       - /bin/sh
@@ -55,7 +62,7 @@ languages:
         printf '%s\n' 'public class Main { public static void main(String[] args) {} }' > Main.java &&
         mkdir -p classes &&
         /usr/bin/javac -J-XX:ActiveProcessorCount=1 -J-XX:+UseSerialGC -J-XX:-UsePerfData -d classes Main.java &&
-        /usr/bin/jar -J-XX:ActiveProcessorCount=1 -J-XX:+UseSerialGC -J-XX:-UsePerfData cf main.jar -C classes . &&
+        /usr/bin/jar -J-Djava.io.tmpdir=. -J-XX:ActiveProcessorCount=1 -J-XX:+UseSerialGC -J-XX:-UsePerfData cf main.jar -C classes . &&
         /usr/bin/java -XX:ActiveProcessorCount=1 -XX:+UseSerialGC -XX:-UsePerfData -Xmx64m -cp main.jar Main
     time_factor: 2
     memory_factor: 1
