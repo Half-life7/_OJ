@@ -36,13 +36,15 @@ deploy/                 systemd、Docker Compose、Linux 调优说明
 
 ### Debian 12 / 13 一键部署
 
-在启用 systemd 和 cgroup v2 的 Debian 主机上，将项目放到服务器，进入项目根目录执行：
+把 [deploy-debian.sh](https://raw.githubusercontent.com/Half-life7/_OJ/main/scripts/deploy-debian.sh) 下载或传给部署人员。在启用 systemd 和 cgroup v2 的 Debian 主机上，进入脚本所在目录执行：
 
 ```bash
-sudo bash scripts/deploy-debian.sh
+bash deploy-debian.sh
 ```
 
-脚本使用 [Docker 官方 APT 源](https://docs.docker.com/engine/install/debian/#install-using-the-apt-repository) 为新主机安装 Docker Engine、Buildx 与 Compose，然后构建 OJ、go-judge 和 C++17、Python 3、Java 工具链。首次运行生成 `deploy/.env`，保存随机沙箱 token 和初始管理员密码。脚本等待两个服务就绪，再从宿主机访问 `/api/health` 确认判题可用。
+按菜单选择部署方式。中国大陆服务器可以直接回车使用国内软件源。有项目源码时可直接在项目根目录运行 `bash scripts/deploy-debian.sh`。只有脚本时，可以让它从 GitHub 下载源码，或提供 GitHub 下载的源码 `tar.gz` 归档，脚本会将源码解压到当前目录下的 `_OJ/`。
+
+脚本会按需请求 sudo 权限、安装 Docker Engine、Buildx 与 Compose，然后构建 OJ、go-judge 和 C++17、Python 3、Java 工具链。首次运行生成 `deploy/.env`，保存随机沙箱 token 和初始管理员密码。脚本等待两个服务就绪，再从宿主机访问 `/api/health` 确认判题可用。
 
 默认站点地址是服务器上的 `http://127.0.0.1:8080`。在自己的电脑上执行 `ssh -N -L 8080:127.0.0.1:8080 用户名@服务器地址`，即可在本地浏览器访问 `http://127.0.0.1:8080`。管理员默认用户名为 `admin`，初始密码可在服务器上查看：
 
@@ -62,19 +64,11 @@ sudo docker compose --env-file deploy/.env -f deploy/docker-compose.yml stop
 
 #### 中国大陆服务器的下载源
 
-Docker 安装包、Docker 基础镜像和构建依赖使用不同的下载源。服务器能访问 Docker Hub 或已配置可用的 Docker Hub 镜像加速时，可以用下面的命令部署。清华镜像提供 Docker CE 和 Debian 软件包，Go 模块由 Goproxy.cn 下载，校验保持开启。[Docker CE 镜像](https://mirrors.tuna.tsinghua.edu.cn/help/docker-ce/) · [Debian 镜像](https://mirrors.tuna.tsinghua.edu.cn/help/debian/) · [Goproxy.cn](https://goproxy.cn/)
-
-```bash
-sudo env \
-  DOCKER_APT_URL=https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian \
-  DEBIAN_MIRROR_BASE=http://mirrors.tuna.tsinghua.edu.cn \
-  GOPROXY=https://goproxy.cn \
-  bash scripts/deploy-debian.sh
-```
+Docker 安装包、Docker 基础镜像和构建依赖使用不同的下载源。服务器能访问 Docker Hub 或已配置可用的镜像加速时，在部署菜单选择 **1 国内软件源** 即可。清华镜像提供 Docker CE 和 Debian 软件包，Go 模块由 Goproxy.cn 下载，校验保持开启。[Docker CE 镜像](https://mirrors.tuna.tsinghua.edu.cn/help/docker-ce/) · [Debian 镜像](https://mirrors.tuna.tsinghua.edu.cn/help/debian/) · [Goproxy.cn](https://goproxy.cn/)
 
 `DOCKER_APT_URL` 用于脚本配置的 Docker CE 软件源。宿主机的 Debian 软件源和系统管理员已有的 Docker 源由宿主机管理。`DEBIAN_MIRROR_BASE` 只在构建镜像时替换容器内的 Debian 和 Debian Security 源，APT 仍校验软件包的签名索引。
 
-Docker Hub 连不通时，可以在 Docker daemon 配置自己的可信镜像缓存，或在 `deploy/.env` 指定可访问的镜像仓库。下面的地址是示例，需替换为已经同步这三个镜像的仓库。`GOPROXY` 和 `DEBIAN_MIRROR_BASE` 也可写入该文件以便后续更新。[Docker Hub 镜像缓存文档](https://docs.docker.com/docker-hub/image-library/mirror/)
+Docker Hub 连不通时，可以在 Docker daemon 配置自己的可信镜像缓存，或在菜单选择 **3 自定义基础镜像仓库** 并输入三个完整镜像地址。下面的地址是示例，需替换为已经同步这三个镜像的仓库。[Docker Hub 镜像缓存文档](https://docs.docker.com/docker-hub/image-library/mirror/)
 
 ```dotenv
 GO_IMAGE=registry.example.com/library/golang:1.23-bookworm
@@ -82,7 +76,7 @@ DEBIAN_IMAGE=registry.example.com/library/debian:bookworm-slim
 GO_JUDGE_IMAGE=registry.example.com/criyle/go-judge:latest
 ```
 
-首次部署可把上述三个变量加到 `sudo env` 命令，由脚本生成 `deploy/.env` 和随机密钥。已有 `deploy/.env` 时，可以用 `sudoedit deploy/.env` 保存这些设置。
+如需保存自定义地址以便后续部署，可以在 `deploy/.env` 写入上述三个变量和 `GOPROXY`、`DEBIAN_MIRROR_BASE`。下次运行选择 **2 使用现有配置或官方默认源**。
 
 #### 离线部署
 
@@ -93,14 +87,7 @@ docker compose --env-file deploy/.env.example -f deploy/docker-compose.yml build
 docker image save -o ../oj-images.tar oj-oj:latest oj-sandbox:latest
 ```
 
-将 `oj-images.tar` 和同版本项目源码传到目标服务器。目标服务器需预装 Docker Engine、Compose、`curl` 和 `openssl`。在目标服务器的项目根目录执行以下命令，镜像归档的路径按实际位置修改：
-
-```bash
-sudo docker image load -i ../oj-images.tar
-sudo bash scripts/deploy-debian.sh --offline
-```
-
-离线模式只启动已导入的成品镜像，仍会生成或复用 `deploy/.env` 并等待健康检查。若目标服务器也访问不了 GitHub，可以在构建机器下载项目源码，再与镜像归档一起传过去。[Docker 镜像导出](https://docs.docker.com/reference/cli/docker/image/save/) · [Docker 镜像导入](https://docs.docker.com/reference/cli/docker/image/load/)
+将 `deploy-debian.sh`、`oj-images.tar` 和同版本的源码 `tar.gz` 传到目标服务器。目标服务器需预装 Docker Engine、Compose、`curl` 和 `openssl`。执行 `bash deploy-debian.sh`，选择 **4 离线部署**，按提示输入源码归档和镜像归档路径。脚本检测到已有源码或镜像时会复用。部署仍会生成或复用 `deploy/.env` 并等待健康检查。[Docker 镜像导出](https://docs.docker.com/reference/cli/docker/image/save/) · [Docker 镜像导入](https://docs.docker.com/reference/cli/docker/image/load/)
 
 ### Windows + WSL2 推荐路径
 

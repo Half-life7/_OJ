@@ -10,15 +10,20 @@ fail() {
 offline=false
 case "${1:-}" in
   -h|--help)
-    printf '用法：sudo bash scripts/deploy-debian.sh [--offline]\n支持 Debian 12/13，站点设置保存在 deploy/.env。\n--offline 使用预装 Docker 和已导入的成品镜像，仅启动服务。\n'
+    printf '用法：bash deploy-debian.sh\n支持 Debian 12/13。直接运行并按提示选择部署方式。\n--offline 可用于自动化，使用预装 Docker 和已导入的成品镜像。\n'
     exit 0
     ;;
-  --offline) offline=true; shift ;;
+  --offline) offline=true ;;
+  '') ;;
+  *) fail '请使用 --help 查看用法。' ;;
 esac
-[[ $# -eq 0 ]] || fail '请使用 --help 查看用法。'
-[[ $EUID -eq 0 ]] || fail '请使用 sudo 运行此脚本。'
+[[ $# -eq 0 || ( $# -eq 1 && $1 == --offline ) ]] || fail '请使用 --help 查看用法。'
 
-cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+if [[ $EUID -ne 0 ]]; then
+  command -v sudo >/dev/null || fail '请使用 root 账号运行，或安装 sudo。'
+  exec sudo bash -- "${BASH_SOURCE[0]}" "$@"
+fi
+
 [[ -r /etc/os-release ]] || fail '无法识别系统版本。'
 source /etc/os-release
 case "${ID:-}:${VERSION_CODENAME:-}" in
@@ -38,6 +43,107 @@ flock -n 9 || fail '已有 OJ 部署正在运行。'
 
 export DEBIAN_FRONTEND=noninteractive
 docker_cmd=(docker --host unix:///var/run/docker.sock)
+launch_dir=$PWD
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+
+interactive=false
+if [[ $# -eq 0 && -t 0 ]]; then
+  interactive=true
+  printf '%s\n' '请选择部署方式' \
+    '  1) 国内软件源（需要能拉取 Docker Hub 镜像）' \
+    '  2) 使用现有配置或官方默认源' \
+    '  3) 国内软件源 + 自定义基础镜像仓库' \
+    '  4) 离线部署（使用现成的 Docker 镜像归档）'
+  while true; do
+    read -r -p '请输入编号 [1]：' mode || fail '未选择部署方式。'
+    case "${mode:-1}" in
+      1|2|3|4) mode=${mode:-1}; break ;;
+      *) printf '请输入 1 到 4 之间的编号。\n' ;;
+    esac
+  done
+  if [[ $mode == 1 || $mode == 3 ]]; then
+    export DOCKER_APT_URL="${DOCKER_APT_URL:-https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian}"
+    export DEBIAN_MIRROR_BASE="${DEBIAN_MIRROR_BASE:-http://mirrors.tuna.tsinghua.edu.cn}"
+    export GOPROXY="${GOPROXY:-https://goproxy.cn}"
+  fi
+  if [[ $mode == 3 ]]; then
+    printf '请输入仓库中已同步的完整镜像地址（含标签或 digest）。\n'
+    read -r -p 'Go 构建镜像（golang:1.23-bookworm）：' GO_IMAGE || fail '未输入 Go 镜像地址。'
+    read -r -p 'Debian 运行镜像（debian:bookworm-slim）：' DEBIAN_IMAGE || fail '未输入 Debian 镜像地址。'
+    read -r -p 'go-judge 沙箱镜像（criyle/go-judge:latest）：' GO_JUDGE_IMAGE || fail '未输入 go-judge 镜像地址。'
+    [[ -n $GO_IMAGE && -n $DEBIAN_IMAGE && -n $GO_JUDGE_IMAGE ]] || fail '自定义模式需要三个镜像地址。'
+    export GO_IMAGE DEBIAN_IMAGE GO_JUDGE_IMAGE
+  fi
+  if [[ $mode == 4 ]]; then
+    offline=true
+  fi
+fi
+
+is_project() {
+  [[ -f $1/go.mod && -f $1/deploy/docker-compose.yml && -f $1/deploy/.env.example ]]
+}
+
+read_archive() {
+  local archive
+  read -r -p "$1" archive || fail '未输入归档路径。'
+  [[ -n $archive ]] || fail '归档路径不能为空。'
+  [[ $archive == /* ]] || archive="$launch_dir/$archive"
+  [[ -f $archive && -r $archive ]] || fail "无法读取归档 $archive。"
+  printf '%s\n' "$archive"
+}
+
+project_dir="$launch_dir/_OJ"
+for candidate in "$script_dir/.." "$script_dir" "$launch_dir" "$project_dir"; do
+  if is_project "$candidate"; then
+    project_dir=$candidate
+    break
+  fi
+done
+if ! is_project "$project_dir"; then
+  [[ ! -e $project_dir && ! -L $project_dir ]] || fail "$project_dir 已存在，请在新的目录重新运行。"
+  source_mode=1
+  if $interactive && ! $offline; then
+    printf '%s\n' '请选择项目源码来源' '  1) 从 GitHub 下载' '  2) 使用本地源码 tar.gz 归档'
+    while true; do
+      read -r -p '请输入编号 [1]：' source_mode || fail '未选择源码来源。'
+      case "${source_mode:-1}" in
+        1|2) source_mode=${source_mode:-1}; break ;;
+        *) printf '请输入 1 或 2。\n' ;;
+      esac
+    done
+  fi
+  if $offline; then
+    $interactive || fail '离线部署需要在项目目录运行，或直接运行脚本并选择本地归档。'
+    source_mode=2
+  fi
+
+  source_tmp=$(mktemp -d -- "$launch_dir/.oj-source.XXXXXX")
+  trap 'rm -rf -- "$source_tmp"' EXIT
+  if [[ $source_mode == 2 ]]; then
+    source_archive=$(read_archive '请输入源码 tar.gz 路径：')
+  else
+    if ! command -v curl >/dev/null; then
+      apt-get update
+      apt-get install -y --no-install-recommends ca-certificates curl
+    fi
+    source_archive="$source_tmp/source.tar.gz"
+    printf '正在从 GitHub 下载项目。\n'
+    curl -fsSL --retry 2 --connect-timeout 10 --max-time 60 \
+      https://codeload.github.com/Half-life7/_OJ/tar.gz/refs/heads/main -o "$source_archive" ||
+      fail 'GitHub 下载失败。请准备源码 tar.gz 后重试，并选择使用本地归档。'
+  fi
+  (
+    umask 022
+    mkdir -- "$source_tmp/project" &&
+      tar -xzf "$source_archive" --strip-components=1 --no-same-owner --no-same-permissions -C "$source_tmp/project"
+  ) || fail '源码归档无法解压。'
+  is_project "$source_tmp/project" || fail '归档中未找到完整的 OJ 项目。'
+  mv -T -n -- "$source_tmp/project" "$project_dir"
+  [[ ! -e $source_tmp/project ]] || fail "$project_dir 已存在，未覆盖该目录。"
+  rm -rf -- "$source_tmp"
+  trap - EXIT
+fi
+cd -P -- "$project_dir"
 
 if $offline; then
   for dependency in docker curl openssl; do
@@ -128,10 +234,19 @@ fi
 "${compose[@]}" config --quiet
 if $offline; then
   images=$("${compose[@]}" config --images)
+  missing_images=()
   while IFS= read -r image; do
-    "${docker_cmd[@]}" image inspect "$image" >/dev/null 2>&1 ||
-      fail "缺少镜像 $image，请先将成品镜像通过 docker load 导入。"
+    "${docker_cmd[@]}" image inspect "$image" >/dev/null 2>&1 || missing_images+=("$image")
   done <<<"$images"
+  if (( ${#missing_images[@]} )); then
+    $interactive || fail "缺少镜像 ${missing_images[*]}，请先将成品镜像通过 docker load 导入。"
+    printf '需导入镜像：%s\n' "${missing_images[*]}"
+    image_archive=$(read_archive '请输入 Docker 镜像归档路径：')
+    "${docker_cmd[@]}" image load -i "$image_archive" || fail '镜像归档导入失败。'
+    for image in "${missing_images[@]}"; do
+      "${docker_cmd[@]}" image inspect "$image" >/dev/null 2>&1 || fail "镜像归档缺少 $image。"
+    done
+  fi
   printf '使用本地镜像启动 OJ 和 go-judge，等待健康检查。\n'
 else
   printf '构建 OJ 和 go-judge 镜像。\n'
@@ -151,4 +266,4 @@ esac
 health=$(curl --noproxy '*' --fail --silent --show-error --max-time 5 "http://$address/api/health") ||
   fail "容器已启动，但无法通过宿主机端口 $address 访问 OJ。"
 [[ $health == *'"sandbox_available":true'* ]] || fail 'OJ 已响应，但判题沙箱暂不可用。'
-printf '部署完成。服务器访问地址：http://%s\n健康状态：%s\n' "$address" "$health"
+printf '部署完成。服务器访问地址：http://%s\n健康状态：%s\n配置及初始管理员密码：%s/deploy/.env\n' "$address" "$health" "$PWD"
